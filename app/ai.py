@@ -2,8 +2,19 @@ import anthropic
 import logging
 from app.config import ANTHROPIC_API_KEY
 from app.database import supabase
+import re
+import httpx
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+def clean_response(text: str) -> str:
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # remove bold
+    text = re.sub(r'\*(.*?)\*', r'\1', text)        # remove italic
+    text = re.sub(r'#{1,6}\s', '', text)             # remove headers
+    text = re.sub(r'\|.*?\|', '', text)              # remove tables
+    text = re.sub(r'\n{3,}', '\n\n', text)           # clean excess newlines
+    return text.strip()
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -44,6 +55,20 @@ tools = [
                 }
             },
             "required": ["query"]
+        }
+    },
+    {
+    "name": "get_stock_news",
+    "description": "Get latest news headlines that may affect a Nigerian stock",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "Stock ticker or company name to search news for"
+                }
+             },
+        "required": ["ticker"]
         }
     },
     {
@@ -111,6 +136,30 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
                     lines.append(f"{s['ticker']} — {s['company']} | {s['price']} | {s['change']} | {s['signal']}")
                     seen.add(s['ticker'])
             return "\n".join(lines)
+        
+        elif tool_name == "get_stock_news":
+            ticker = tool_input["ticker"].upper()
+            feeds = [
+                "https://nairametrics.com/feed/",
+                "https://businessday.ng/feed/"
+            ]
+            
+            headlines = []
+            for feed_url in feeds:
+                try:
+                    resp = httpx.get(feed_url, timeout=10)
+                    soup = BeautifulSoup(resp.text, "xml")
+                    items = soup.find_all("item")[:20]
+                    for item in items:
+                        title = item.find("title")
+                        if title and ticker.lower() in title.text.lower():
+                            headlines.append(title.text.strip())
+                except:
+                    continue
+            
+            if not headlines:
+                return f"No recent news found for {ticker}"
+            return f"Recent news for {ticker}:\n" + "\n".join(f"- {h}" for h in headlines[:5])
 
         elif tool_name == "get_top_movers":
             direction = tool_input["direction"]
@@ -209,7 +258,7 @@ The user's name is {user_name}."""
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if hasattr(block, "text"):
-                    return block.text
+                    return clean_response(block.text)
             return "I couldn't generate a response. Please try again."
 
         elif response.stop_reason == "tool_use":
@@ -227,3 +276,5 @@ The user's name is {user_name}."""
 
         else:
             return "Something went wrong. Please try again."
+        
+

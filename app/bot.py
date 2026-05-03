@@ -105,17 +105,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text or ""
     image_data = None
     image_mime = None
-    
+
     if update.message.photo:
-        photo = update.message.photo[-1]  # highest resolution
+        photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
         image_data = await file.download_as_bytearray()
         image_mime = "image/jpeg"
         user_message = update.message.caption or ""
 
-    await update.message.reply_text("🤔 Analysing...")
+    thinking_msg = await update.message.reply_text("🤔 Analysing...")
 
     response = get_ai_response(user_message, user_name, image_data, image_mime)
+    
+    await thinking_msg.delete()
     await update.message.reply_text(response)
 
 
