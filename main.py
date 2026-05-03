@@ -1,18 +1,31 @@
 import asyncio
-import threading
 from app.scheduler import start_scheduler, scrape_and_save
-from app.bot import run_bot
+from telegram.ext import Application, CommandHandler
+from app.bot import start, help_command, signals, explain, performance, subscribe
+from app.config import TELEGRAM_BOT_TOKEN
 
 async def main():
+    # run scraper once on startup
     await scrape_and_save()
+    
+    # start scheduler
     scheduler = start_scheduler()
-    print("StockOracle scheduler running...")
     
-    # run bot in separate thread
-    bot_thread = threading.Thread(target=run_bot, daemon=True)
-    bot_thread.start()
+    # build telegram bot
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("signals", signals))
+    app.add_handler(CommandHandler("explain", explain))
+    app.add_handler(CommandHandler("performance", performance))
+    app.add_handler(CommandHandler("subscribe", subscribe))
     
-    while True:
-        await asyncio.sleep(60)
+    print("StockOracle running...")
+    
+    async with app:
+        await app.start()
+        await app.updater.start_polling()
+        while True:
+            await asyncio.sleep(60)
 
 asyncio.run(main())
