@@ -1,17 +1,17 @@
 import asyncio
-from app.scrapers.ngx import get_ngx_prices
-from app.database import supabase
-from datetime import datetime
+from app.scheduler import start_scheduler, scrape_and_save
 
-async def save_stocks():
-    print("Scraping NGX stocks...")
-    stocks = await get_ngx_prices()
-    print(f"Found {len(stocks)} stocks, saving to Supabase...")
+async def main():
+    # run once immediately on startup
+    await scrape_and_save()
     
-    for stock in stocks:
-        stock["scraped_at"] = datetime.utcnow().isoformat()
+    # then start the scheduler for daily runs
+    scheduler = start_scheduler()
     
-    result = supabase.table("stocks").insert(stocks).execute()
-    print(f"Saved successfully")
+    print("StockOracle scheduler running...")
+    
+    # keep the process alive
+    while True:
+        await asyncio.sleep(60)
 
-asyncio.run(save_stocks())
+asyncio.run(main())
