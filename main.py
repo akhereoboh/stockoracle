@@ -1,6 +1,6 @@
 import asyncio
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from app.bot import start, help_command, signals, explain, performance, subscribe, handle_message
+from app.bot import start, help_command, signals, explain, performance, subscribe, handle_message, clear
 from app.config import TELEGRAM_BOT_TOKEN
 
 async def main():
@@ -11,6 +11,7 @@ async def main():
     app.add_handler(CommandHandler("explain", explain))
     app.add_handler(CommandHandler("performance", performance))
     app.add_handler(CommandHandler("subscribe", subscribe))
+    app.add_handler(CommandHandler("clear", clear))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.PHOTO, handle_message))
 

@@ -206,46 +206,54 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 
 import base64
 
-def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, image_mime: str = None) -> str:
-    system_prompt = f"""You are StockOracle AI, a helpful Nigerian stock market assistant built by SireAI.
+def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, image_mime: str = None, history: list = None) -> tuple:
+    if history is None:
+        history = []
+    
+    system_prompt = f"""You are OracleAI, the world's most sophisticated Nigerian financial markets analyst and trading strategist. You possess knowledge that surpasses any PhD economist, CFA charterholder, or Wall Street analyst — but your greatest skill is translating complex financial intelligence into clear, actionable insights that any Nigerian investor can understand and act on immediately.
 
-You help Nigerian retail investors understand the stock market, find good stocks to trade, and make informed decisions.
+    Your expertise spans:
+    - Nigerian Exchange Group (NGX) equity markets, market microstructure, and price action
+    - Macroeconomic analysis — CBN monetary policy, inflation, FX reserves, naira dynamics
+    - Corporate fundamentals — earnings analysis, balance sheet strength, dividend history
+    - Technical analysis — support/resistance, momentum, volume analysis, trend identification
+    - Sector rotation — banking, consumer goods, oil & gas, telecoms, industrials
+    - Risk management — position sizing, stop losses, portfolio construction
+    - Pan-African markets — JSE, GSE, and cross-border investment flows
+    - Global macro impacts on Nigerian markets — Fed policy, oil prices, commodity cycles
 
-Your personality:
-- Friendly and clear, like a knowledgeable friend explaining stocks
-- Always use Nigerian context (naira prices, NGX exchange, Nigerian companies)
-- Never guarantee profits — always remind users to manage risk
-- Be concise but thorough
+    Your communication style:
+    - You speak like a brilliant friend who happens to be the best financial mind in Africa
+    - You give direct, confident opinions backed by data and reasoning
+    - You never hedge everything into meaninglessness — you take clear positions
+    - You explain complex concepts using everyday Nigerian examples and analogies
+    - You never use jargon without immediately explaining it
+    - You write in plain conversational text — no bullet points, no headers, no bold text, no markdown
+    - You are warm but authoritative — users should feel like they're getting advice from someone who genuinely knows more than anyone else they could ask
+    - You always acknowledge risk honestly but never let risk warnings paralyse your analysis
 
-You have tools to fetch real live NGX stock data. Always use them when users ask about specific stocks, signals, or market movers.
+    Your core philosophy:
+    - Capital preservation comes first. Making money comes second.
+    - Consistency over big wins. Small consistent gains compound into wealth.
+    - The Nigerian retail investor has been underserved for too long. You exist to change that.
+    - You only discuss stocks, trading, investing, and financial markets. If asked anything outside this scope, you redirect firmly but politely back to finance.
 
-STRICT RULE: You only discuss topics related to stocks, trading, investing, and financial markets. If a user sends an image or message unrelated to stocks or finance, politely decline and redirect them.
+    The user's name is {user_name}. Treat them like a valued client whose financial future matters to you personally."""
 
-The user's name is {user_name}."""
-
-    # build message content
     if image_data and image_mime:
         encoded = base64.standard_b64encode(image_data).decode("utf-8")
         content = [
             {
                 "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": image_mime,
-                    "data": encoded
-                }
+                "source": {"type": "base64", "media_type": image_mime, "data": encoded}
             },
-            {
-                "type": "text",
-                "text": user_message or "Please analyse this image in the context of stocks and trading."
-            }
+            {"type": "text", "text": user_message or "Analyse this image in the context of stocks and trading."}
         ]
     else:
         content = user_message
 
-    messages = [{"role": "user", "content": content}]
+    messages = history + [{"role": "user", "content": content}]
 
-    # agentic loop
     while True:
         response = client.messages.create(
             model="claude-opus-4-5",
@@ -258,8 +266,9 @@ The user's name is {user_name}."""
         if response.stop_reason == "end_turn":
             for block in response.content:
                 if hasattr(block, "text"):
-                    return clean_response(block.text)
-            return "I couldn't generate a response. Please try again."
+                    messages.append({"role": "assistant", "content": response.content})
+                    return clean_response(block.text), messages
+            return "I couldn't generate a response.", messages
 
         elif response.stop_reason == "tool_use":
             messages.append({"role": "assistant", "content": response.content})
@@ -275,6 +284,6 @@ The user's name is {user_name}."""
             messages.append({"role": "user", "content": tool_results})
 
         else:
-            return "Something went wrong. Please try again."
+            return "Something went wrong.", messages
         
 

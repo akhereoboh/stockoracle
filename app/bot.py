@@ -20,6 +20,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help — show this menu"
     )
 
+user_histories = {}
+
+async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id in user_histories:
+        del user_histories[user_id]
+    await update.message.reply_text("Conversation cleared. Fresh start!")
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📊 StockOracle Commands:\n\n"
@@ -101,6 +109,7 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "there"
     user_message = update.message.text or ""
     image_data = None
@@ -113,9 +122,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_mime = "image/jpeg"
         user_message = update.message.caption or ""
 
+    # get or create history for this user
+    if user_id not in user_histories:
+        user_histories[user_id] = []
+
     thinking_msg = await update.message.reply_text("🤔 Analysing...")
 
-    response = get_ai_response(user_message, user_name, image_data, image_mime)
+    response, updated_history = get_ai_response(
+        user_message, user_name, image_data, image_mime, user_histories[user_id]
+    )
+    
+    user_histories[user_id] = updated_history[-20:]  # keep last 20 messages
     
     await thinking_msg.delete()
     await update.message.reply_text(response)
