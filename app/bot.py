@@ -30,10 +30,29 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📈 Fetching this week's signals...\n"
-        "Signal engine coming soon. Check back Monday!"
-    )
+    result = supabase.table("signals")\
+        .select("*")\
+        .eq("status", "active")\
+        .order("created_at", desc=True)\
+        .limit(5)\
+        .execute()
+    
+    if not result.data:
+        await update.message.reply_text("No active signals yet. Check back Monday!")
+        return
+    
+    msg = "📊 *This Week's Top 5 NGX Signals*\n\n"
+    
+    for i, s in enumerate(result.data, 1):
+        msg += f"{i}. *{s['ticker']}*\n"
+        msg += f"   Entry: ₦{s['entry_price']}\n"
+        msg += f"   TP1: ₦{s['tp1']} (+6%)\n"
+        msg += f"   TP2: ₦{s['tp2']} (+12%)\n"
+        msg += f"   Stop Loss: ₦{s['stop_loss']}\n\n"
+    
+    msg += "⚠️ Always manage your risk. Never invest more than you can afford to lose."
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 async def explain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
