@@ -3,6 +3,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from app.config import TELEGRAM_BOT_TOKEN
 from app.database import supabase
+from app.ai import get_ai_response
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -98,6 +99,26 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚀 Pro ₦7,500/month — daily signals + portfolio audit\n\n"
         "Payment coming soon via Paystack."
     )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name or "there"
+    user_message = update.message.text or ""
+    image_data = None
+    image_mime = None
+    
+    if update.message.photo:
+        photo = update.message.photo[-1]  # highest resolution
+        file = await context.bot.get_file(photo.file_id)
+        image_data = await file.download_as_bytearray()
+        image_mime = "image/jpeg"
+        user_message = update.message.caption or ""
+
+    await update.message.reply_text("🤔 Analysing...")
+
+    response = get_ai_response(user_message, user_name, image_data, image_mime)
+    await update.message.reply_text(response)
+
+
 
 def run_bot():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()

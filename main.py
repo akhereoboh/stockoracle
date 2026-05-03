@@ -4,6 +4,8 @@ from telegram.ext import Application, CommandHandler
 from app.bot import start, help_command, signals, explain, performance, subscribe
 from app.config import TELEGRAM_BOT_TOKEN
 from app.signal_engine import run_signal_engine
+from app.bot import handle_message
+from telegram.ext import MessageHandler, filters
 
 async def main():
     # run scraper once on startup
@@ -21,7 +23,8 @@ async def main():
     app.add_handler(CommandHandler("explain", explain))
     app.add_handler(CommandHandler("performance", performance))
     app.add_handler(CommandHandler("subscribe", subscribe))
-
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_message))
     print("StockOracle running...")
     
     async with app:
