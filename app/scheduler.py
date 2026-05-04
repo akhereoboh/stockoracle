@@ -5,6 +5,7 @@ from app.database import supabase
 from datetime import datetime, UTC
 import asyncio
 import logging
+from datetime import date
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,8 +17,11 @@ async def scrape_and_save():
         
         for stock in stocks:
             stock["scraped_at"] = datetime.now(UTC).isoformat()
+            stock["trade_date"] = date.today().isoformat()
         
-        supabase.table("stocks").insert(stocks).execute()
+        supabase.table("stocks").upsert(
+            stocks, on_conflict="ticker,trade_date"
+        ).execute()
         logger.info(f"Saved {len(stocks)} stocks to Supabase")
     except Exception as e:
         logger.error(f"Scrape failed: {e}")
