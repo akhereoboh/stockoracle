@@ -1,6 +1,7 @@
 import logging
 from app.database import supabase
 from datetime import datetime, UTC, date, timedelta
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,13 @@ def clean_change(change_str: str) -> float:
     except:
         return 0.0
 
+def clean_volume(volume_str: str) -> float:
+    try:
+        v = str(volume_str).replace(",", "").strip()
+        return float(v) if v else 0.0
+    except:
+        return 0.0
+
 def get_latest_stocks() -> list:
     today = date.today().isoformat()
     result = supabase.table("stocks")\
@@ -24,15 +32,20 @@ def get_latest_stocks() -> list:
         .execute()
     return result.data or []
 
-def get_historical_prices(ticker: str, days: int = 10) -> list:
+def get_all_history_bulk(days: int = 10) -> dict:
+    """Fetch all stock history in ONE query instead of one per stock"""
     since = (date.today() - timedelta(days=days)).isoformat()
     result = supabase.table("stocks")\
-        .select("price, change, trade_date")\
-        .eq("ticker", ticker)\
+        .select("ticker, price, change, trade_date")\
         .gte("trade_date", since)\
         .order("trade_date", desc=False)\
         .execute()
-    return result.data or []
+    
+    history_map = defaultdict(list)
+    for row in (result.data or []):
+        history_map[row["ticker"]].append(row)
+    
+    return dict(history_map)
 
 def get_recently_signalled_tickers(weeks: int = 2) -> set:
     since = (date.today() - timedelta(weeks=weeks)).isoformat()
@@ -61,42 +74,84 @@ def calculate_consistency(history: list) -> float:
     positive_days = sum(1 for c in changes if c > 0)
     return (positive_days / len(changes)) * 100
 
+def calculate_volume_score(stock: dict, history: list) -> float:
+    """Score based on volume relative to recent average"""
+    try:
+        today_volume = clean_volume(stock.get("volume", "0"))
+        if today_volume == 0:
+            return 0.0
+        
+        if len(history) < 3:
+            return 5.0  # small bonus if no history to compare
+        
+        historical_volumes = [
+            clean_volume(h.get("volume", "0")) 
+            for h in history 
+            if clean_volume(h.get("volume", "0")) > 0
+        ]
+        
+        if not historical_volumes:
+            return 0.0
+        
+        avg_volume = sum(historical_volumes) / len(historical_volumes)
+        if avg_volume == 0:
+            return 0.0
+        
+        volume_ratio = today_volume / avg_volume
+        
+        if volume_ratio >= 3:
+            return 20.0  # massive volume spike
+        elif volume_ratio >= 2:
+            return 15.0  # strong volume spike
+        elif volume_ratio >= 1.5:
+            return 10.0  # moderate volume increase
+        elif volume_ratio >= 1:
+            return 5.0   # above average volume
+        else:
+            return 0.0   # below average volume
+    except:
+        return 0.0
+
 def score_stock(stock: dict, history: list) -> float:
     score = 0.0
     signal = stock.get("signal", "").upper()
     change = clean_change(stock.get("change", "0%"))
     price = clean_price(stock.get("price", "₦0"))
 
-    # exclude sells, no data, and very cheap stocks
+    # hard exclusions
     if "SELL" in signal or "NO DATA" in signal:
         return 0.0
     if price < 1:
         return 0.0
 
-    # signal score
+    # signal score (40 points max)
     if "BUY" in signal:
         score += 40
     elif "HOLD" in signal:
         score += 10
 
-    # today's momentum
+    # today's momentum (20 points max)
     if 0 < change <= 9:
         score += min(change * 2, 20)
     elif change > 9:
         score -= 10  # suspicious pump
 
-    # historical momentum (trend over last 10 days)
+    # multi-day momentum (25 points max)
     momentum = calculate_momentum(history)
     if momentum > 0:
         score += min(momentum * 1.5, 25)
     elif momentum < -10:
         score -= 15
 
-    # consistency (how many days were positive)
+    # consistency score (15 points max)
     consistency = calculate_consistency(history)
     score += (consistency / 100) * 15
 
-    # bonus for having enough history
+    # volume score (20 points max)
+    volume_score = calculate_volume_score(stock, history)
+    score += volume_score
+
+    # history depth bonus (5 points)
     if len(history) >= 5:
         score += 5
 
@@ -118,6 +173,10 @@ def run_signal_engine() -> list:
         logger.warning("No stocks found for today")
         return []
 
+    # fetch ALL history in one query
+    logger.info("Fetching bulk history...")
+    history_map = get_all_history_bulk(days=10)
+    
     recently_signalled = get_recently_signalled_tickers(weeks=2)
     logger.info(f"Excluding {len(recently_signalled)} recently signalled tickers")
 
@@ -128,7 +187,7 @@ def run_signal_engine() -> list:
         if ticker in recently_signalled:
             continue
 
-        history = get_historical_prices(ticker, days=10)
+        history = history_map.get(ticker, [])
         score = score_stock(stock, history)
 
         if score > 0:
@@ -167,10 +226,7 @@ def run_signal_engine() -> list:
 
         logger.info(f"Signal: {stock['ticker']} | Score: {score:.1f} | Entry: ₦{price} | History: {len(history)} days")
 
-    # save signals
     supabase.table("signals").insert(signals).execute()
-
-    # save to signal history
     supabase.table("signal_history").upsert(
         history_records, on_conflict="ticker,week_start"
     ).execute()
@@ -189,31 +245,39 @@ def update_signal_outcomes():
     if not active.data:
         return
 
+    tickers = [r["ticker"] for r in active.data]
+    
+    # fetch all latest prices in one query
+    latest_prices = {}
+    result = supabase.table("stocks")\
+        .select("ticker, price, trade_date")\
+        .in_("ticker", tickers)\
+        .order("trade_date", desc=True)\
+        .execute()
+    
+    for row in (result.data or []):
+        if row["ticker"] not in latest_prices:
+            latest_prices[row["ticker"]] = clean_price(row["price"])
+
     for record in active.data:
         ticker = record["ticker"]
-        latest = supabase.table("stocks")\
-            .select("price")\
-            .eq("ticker", ticker)\
-            .order("trade_date", desc=True)\
-            .limit(1)\
-            .execute()
-
-        if not latest.data:
+        current_price = latest_prices.get(ticker)
+        
+        if not current_price:
             continue
 
-        current_price = clean_price(latest.data[0]["price"])
         entry = record["entry_price"]
         tp1 = record["tp1"]
         stop_loss = record["stop_loss"]
 
         if current_price >= tp1:
             outcome = "tp1_hit"
-            gain = round(((current_price - entry) / entry) * 100, 2)
         elif current_price <= stop_loss:
             outcome = "stopped_out"
-            gain = round(((current_price - entry) / entry) * 100, 2)
         else:
             continue
+
+        gain = round(((current_price - entry) / entry) * 100, 2)
 
         supabase.table("signal_history").update({
             "outcome": outcome,
