@@ -19,22 +19,26 @@ async def get_ngx_prices() -> list:
         i = 0
         while i < len(lines):
             line = lines[i]
-            # ticker is a short uppercase word
             if re.match(r'^[A-Z0-9]{2,15}$', line) and i + 1 < len(lines):
                 ticker = line
                 company = lines[i+1] if i+1 < len(lines) else ""
                 signal = ""
                 price = ""
                 change = ""
+                volume = "0"
                 
-                # look ahead for price, signal, change
-                for j in range(i+1, min(i+6, len(lines))):
+                for j in range(i+1, min(i+10, len(lines))):
                     if "BUY" in lines[j] or "SELL" in lines[j] or "HOLD" in lines[j] or "NO DATA" in lines[j]:
                         signal = lines[j]
                     if lines[j].startswith("₦") and not lines[j].startswith("₦0.00"):
                         price = lines[j]
                     if re.match(r'^[+-]\d+\.\d+%$', lines[j]):
                         change = lines[j]
+                    # volume line: "Volume" label followed by a number
+                    if lines[j] == "Volume" and j+1 < len(lines):
+                        raw_vol = lines[j+1].replace(",", "").strip()
+                        if raw_vol.isdigit():
+                            volume = raw_vol
                 
                 if price:
                     results.append({
@@ -42,7 +46,8 @@ async def get_ngx_prices() -> list:
                         "company": company,
                         "price": price,
                         "change": change,
-                        "signal": signal
+                        "signal": signal,
+                        "volume": volume
                     })
                 i += 1
             else:
