@@ -13,18 +13,26 @@ PAYSTACK_BASE = "https://api.paystack.co"
 
 def create_subscription_link(email: str, plan_code: str, telegram_id: int) -> str:
     try:
+        # determine amount from plan code
+        from app.config import PAYSTACK_BASIC_PLAN, PAYSTACK_PRO_PLAN
+        if plan_code == PAYSTACK_BASIC_PLAN:
+            amount = 599900  # ₦5,999 in kobo
+        else:
+            amount = 999900  # ₦9,999 in kobo
+
         headers = {
             "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
             "Content-Type": "application/json"
         }
         data = {
             "email": email,
+            "amount": amount,
             "plan": plan_code,
             "metadata": {
                 "telegram_id": str(telegram_id)
             }
         }
-        logger.info(f"Paystack request: email={email}, plan={plan_code}, telegram_id={telegram_id}")
+        logger.info(f"Paystack request: email={email}, plan={plan_code}, amount={amount}")
         response = httpx.post(
             f"{PAYSTACK_BASE}/transaction/initialize",
             json=data,
