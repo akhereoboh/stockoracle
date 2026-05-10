@@ -21,17 +21,21 @@ def create_subscription_link(email: str, plan_code: str, telegram_id: int) -> st
             "email": email,
             "plan": plan_code,
             "metadata": {
-                "telegram_id": str(telegram_id)
+                "telegram_id": str(telegram_id),
+                "cancel_action": "https://sireai.uk"
             }
         }
         response = httpx.post(
             f"{PAYSTACK_BASE}/transaction/initialize",
             json=data,
-            headers=headers
+            headers=headers,
+            timeout=30
         )
+        print("Paystack response:", response.status_code, response.text)
         result = response.json()
         if result.get("status"):
             return result["data"]["authorization_url"]
+        print("Paystack error:", result)
         return None
     except Exception as e:
         logger.error(f"Paystack link error: {e}")
@@ -51,9 +55,9 @@ def verify_transaction(reference: str) -> dict:
 
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     expected = hmac.new(
-        PAYSTACK_SECRET_KEY.encode(),
-        payload,
-        hashlib.sha512
+        PAYSTACK_SECRET_KEY.encode("utf-8"),
+        msg=payload,
+        digestmod=hashlib.sha512
     ).hexdigest()
     return hmac.compare_digest(expected, signature)
 
