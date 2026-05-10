@@ -5,6 +5,8 @@ import logging
 from app.config import PAYSTACK_SECRET_KEY, PAYSTACK_BASIC_PLAN, PAYSTACK_PRO_PLAN
 from app.database import supabase
 from datetime import datetime, UTC, timedelta
+import random
+import string
 
 
 logger = logging.getLogger(__name__)
@@ -123,4 +125,84 @@ def register_user(telegram_id: int, name: str) -> dict:
         return get_user(telegram_id)
     except Exception as e:
         logger.error(f"Register error: {e}")
+        return None
+    
+
+def generate_referral_code(telegram_id: int) -> str:
+    return f"SO{str(telegram_id)[-4:]}{random.choices(string.ascii_uppercase, k=3)[0]}"
+
+def get_or_create_referral_code(telegram_id: int) -> str:
+    user = get_user(telegram_id)
+    if not user:
+        return None
+    
+    if user.get("referral_code"):
+        return user["referral_code"]
+    
+    code = generate_referral_code(telegram_id)
+    supabase.table("users").update({
+        "referral_code": code
+    }).eq("telegram_id", telegram_id).execute()
+    
+    return code
+
+def process_referral(referred_id: int, referral_code: str):
+    try:
+        referrer = supabase.table("users")\
+            .select("telegram_id")\
+            .eq("referral_code", referral_code)\
+            .execute()
+        
+        if not referrer.data:
+            return
+        
+        referrer_id = referrer.data[0]["telegram_id"]
+        
+        if referrer_id == referred_id:
+            return
+        
+        supabase.table("referrals").insert({
+            "referrer_id": referrer_id,
+            "referred_id": referred_id
+        }).execute()
+        
+        supabase.table("users").update({
+            "referred_by": referral_code
+        }).eq("telegram_id", referred_id).execute()
+        
+        logger.info(f"Referral recorded: {referred_id} referred by {referrer_id}")
+    except Exception as e:
+        logger.error(f"Referral error: {e}")
+
+def reward_referrer(referred_id: int):
+    try:
+        referral = supabase.table("referrals")\
+            .select("*")\
+            .eq("referred_id", referred_id)\
+            .eq("converted", False)\
+            .execute()
+        
+        if not referral.data:
+            return
+        
+        referrer_id = referral.data[0]["referrer_id"]
+        
+        # add 7 bonus days to referrer
+        referrer = get_user(referrer_id)
+        if referrer and referrer.get("expires_at"):
+            from datetime import timedelta
+            exp = datetime.fromisoformat(referrer["expires_at"].replace("Z", "+00:00"))
+            new_exp = exp + timedelta(days=7)
+            supabase.table("users").update({
+                "expires_at": new_exp.isoformat()
+            }).eq("telegram_id", referrer_id).execute()
+        
+        supabase.table("referrals").update({
+            "converted": True
+        }).eq("referred_id", referred_id).execute()
+        
+        logger.info(f"Referrer {referrer_id} rewarded 7 days for referring {referred_id}")
+        return referrer_id
+    except Exception as e:
+        logger.error(f"Reward referrer error: {e}")
         return None

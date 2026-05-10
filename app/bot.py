@@ -68,8 +68,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         register_user(telegram_id, name)
         user = get_user(telegram_id)
+        
+        # process referral if code provided
+        if context.args:
+            referral_code = context.args[0]
+            from app.payments import process_referral
+            process_referral(telegram_id, referral_code)
 
-    # always check terms — existing users who haven't accepted must also see them
     if not user or not user.get("terms_accepted"):
         keyboard = [[
             InlineKeyboardButton("✅ I Accept", callback_data="accept_terms"),
@@ -491,6 +496,127 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await thinking_msg.delete()
     await update.message.reply_text(response)
+    
+
+async def watchlist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+    
+    telegram_id = update.effective_user.id
+    args = context.args
+    
+    if not args:
+        await update.message.reply_text("Usage: /watch GTCO")
+        return
+    
+    ticker = args[0].upper()
+    
+    # verify ticker exists
+    result = supabase.table("stocks")\
+        .select("ticker, company")\
+        .eq("ticker", ticker)\
+        .limit(1)\
+        .execute()
+    
+    if not result.data:
+        await update.message.reply_text(f"{ticker} not found. Check the ticker and try again.")
+        return
+    
+    try:
+        supabase.table("watchlist").insert({
+            "telegram_id": telegram_id,
+            "ticker": ticker
+        }).execute()
+        company = result.data[0]["company"]
+        await update.message.reply_text(
+            f"{ticker} ({company}) added to your watchlist.\n\n"
+            "You'll get daily price updates on this stock.\n"
+            "Use /watchlist to see all your stocks."
+        )
+    except Exception as e:
+        if "unique" in str(e).lower():
+            await update.message.reply_text(f"{ticker} is already in your watchlist.")
+        else:
+            await update.message.reply_text("Something went wrong. Please try again.")
+
+async def watchlist_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+    
+    telegram_id = update.effective_user.id
+    
+    result = supabase.table("watchlist")\
+        .select("ticker")\
+        .eq("telegram_id", telegram_id)\
+        .execute()
+    
+    if not result.data:
+        await update.message.reply_text(
+            "Your watchlist is empty.\n\n"
+            "Add stocks with /watch GTCO"
+        )
+        return
+    
+    tickers = [r["ticker"] for r in result.data]
+    msg = "Your Watchlist:\n\n"
+    
+    for ticker in tickers:
+        stock = supabase.table("stocks")\
+            .select("price, change, signal")\
+            .eq("ticker", ticker)\
+            .order("scraped_at", desc=True)\
+            .limit(1)\
+            .execute()
+        
+        if stock.data:
+            s = stock.data[0]
+            msg += f"{ticker} — {s['price']} | {s['change']} | {s['signal']}\n"
+        else:
+            msg += f"{ticker} — no data\n"
+    
+    msg += "\nRemove a stock: /unwatch GTCO"
+    await update.message.reply_text(msg)
+
+async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+    
+    telegram_id = update.effective_user.id
+    from app.payments import get_or_create_referral_code
+    
+    code = get_or_create_referral_code(telegram_id)
+    bot_username = (await context.bot.get_me()).username
+    
+    await update.message.reply_text(
+        f"Your referral code: {code}\n\n"
+        f"Share this link with friends:\n"
+        f"https://t.me/{bot_username}?start={code}\n\n"
+        "When a friend joins using your link and subscribes, "
+        "you automatically get 7 free days added to your subscription.\n\n"
+        "There's no limit — refer 4 friends and get a free month!"
+    )
+
+
+async def watchlist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+    
+    telegram_id = update.effective_user.id
+    args = context.args
+    
+    if not args:
+        await update.message.reply_text("Usage: /unwatch GTCO")
+        return
+    
+    ticker = args[0].upper()
+    
+    supabase.table("watchlist")\
+        .delete()\
+        .eq("telegram_id", telegram_id)\
+        .eq("ticker", ticker)\
+        .execute()
+    
+    await update.message.reply_text(f"{ticker} removed from your watchlist.")
 
 def run_bot():
     return Application.builder().token(TELEGRAM_BOT_TOKEN).build()

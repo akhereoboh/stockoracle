@@ -4,6 +4,7 @@ from app.config import PAYSTACK_BASIC_PLAN, PAYSTACK_PRO_PLAN, TELEGRAM_BOT_TOKE
 import logging
 import json
 import httpx
+from app.payments import reward_referrer
 
 logger = logging.getLogger(__name__)
 webhook_app = FastAPI()
@@ -51,6 +52,13 @@ async def paystack_webhook(request: Request):
                 register_user(tid, email or "user")
 
             upgrade_user(tid, tier, email)
+            referrer_id = reward_referrer(tid)
+            if referrer_id:
+                await send_telegram_message(
+                    referrer_id,
+                    "🎁 Referral bonus! Someone you referred just subscribed.\n"
+                    "7 free days have been added to your subscription automatically."
+                )
             logger.info(f"User {tid} upgraded to {tier}")
 
             # send upgrade notification

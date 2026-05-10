@@ -118,3 +118,39 @@ async def send_tp_alerts(bot):
             .execute()
 
     logger.info("Take profit alerts done")
+
+
+async def send_watchlist_updates(bot):
+    logger.info("Sending watchlist updates...")
+    
+    result = supabase.table("watchlist").select("telegram_id, ticker").execute()
+    
+    if not result.data:
+        return
+    
+    # group by user
+    user_tickers = {}
+    for row in result.data:
+        tid = row["telegram_id"]
+        if tid not in user_tickers:
+            user_tickers[tid] = []
+        user_tickers[tid].append(row["ticker"])
+    
+    for telegram_id, tickers in user_tickers.items():
+        msg = "📋 Your Watchlist Update\n\n"
+        for ticker in tickers:
+            stock = supabase.table("stocks")\
+                .select("price, change, signal")\
+                .eq("ticker", ticker)\
+                .order("scraped_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if stock.data:
+                s = stock.data[0]
+                msg += f"{ticker} — {s['price']} | {s['change']} | {s['signal']}\n"
+        
+        try:
+            await bot.send_message(chat_id=telegram_id, text=msg)
+        except Exception as e:
+            logger.error(f"Watchlist update failed for {telegram_id}: {e}")
