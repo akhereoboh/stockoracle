@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
-from app.payments import verify_webhook_signature, upgrade_user
+from app.payments import verify_webhook_signature, upgrade_user, get_user, register_user
 from app.config import PAYSTACK_BASIC_PLAN, PAYSTACK_PRO_PLAN
 import logging
 import json
@@ -14,10 +14,12 @@ async def paystack_webhook(request: Request):
     signature = request.headers.get("x-paystack-signature", "")
     
     if not verify_webhook_signature(payload, signature):
+        logger.warning("Invalid Paystack webhook signature")
         raise HTTPException(status_code=401, detail="Invalid signature")
     
     event = json.loads(payload)
     event_type = event.get("event")
+    logger.info(f"Paystack event received: {event_type}")
     
     if event_type in ["charge.success", "subscription.create"]:
         data = event.get("data", {})
@@ -26,13 +28,18 @@ async def paystack_webhook(request: Request):
         email = data.get("customer", {}).get("email")
         plan_code = data.get("plan", {}).get("plan_code", "")
         
+        logger.info(f"Payment data: telegram_id={telegram_id}, email={email}, plan={plan_code}")
+        
         if telegram_id:
-            tier = "basic"
-            if plan_code == PAYSTACK_PRO_PLAN:
-                tier = "pro"
+            tid = int(telegram_id)
+            tier = "pro" if plan_code == PAYSTACK_PRO_PLAN else "basic"
             
-            upgrade_user(int(telegram_id), tier, email)
-            logger.info(f"Payment confirmed: {telegram_id} → {tier}")
+            existing = get_user(tid)
+            if not existing:
+                register_user(tid, email or "user")
+            
+            upgrade_user(tid, tier, email)
+            logger.info(f"User {tid} upgraded to {tier}")
     
     return {"status": "ok"}
 
