@@ -5,6 +5,7 @@ from app.database import supabase
 import re
 import httpx
 from bs4 import BeautifulSoup
+from app.signal_engine import clean_price
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,20 @@ tools = [
         }
     },
     {
+    "name": "portfolio_audit",
+    "description": "Analyse a user's stock portfolio. Takes their holdings and fetches current prices to give a structured audit with sector breakdown and risk assessment.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "holdings": {
+                "type": "string",
+                "description": "The user's holdings as described e.g '5000 GTCO at 48, 2000 MTNN at 218'"
+            }
+        },
+        "required": ["holdings"]
+        }
+    },
+    {
         "name": "get_top_movers",
         "description": "Get today's top gaining and losing stocks on the NGX",
         "input_schema": {
@@ -136,6 +151,73 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
                     lines.append(f"{s['ticker']} — {s['company']} | {s['price']} | {s['change']} | {s['signal']}")
                     seen.add(s['ticker'])
             return "\n".join(lines)
+        
+        elif tool_name == "portfolio_audit":
+            
+            holdings_text = tool_input["holdings"]
+            
+            # parse holdings
+            pattern = r'(\d+[\d,]*)\s+([A-Z]+)\s+(?:at|@)?\s*[₦]?(\d+[\d.]*)'
+            matches = re.findall(pattern, holdings_text.upper())
+            
+            if not matches:
+                return "Could not parse holdings. Please format like: 5000 GTCO at 48, 2000 MTNN at 218"
+            
+            portfolio = []
+            total_value = 0
+            
+            for qty, ticker, buy_price in matches:
+                qty = int(qty.replace(",", ""))
+                buy_price = float(buy_price)
+                
+                # get current price
+                result = supabase.table("stocks")\
+                    .select("price, signal, company")\
+                    .eq("ticker", ticker)\
+                    .order("scraped_at", desc=True)\
+                    .limit(1)\
+                    .execute()
+                
+                if result.data:
+                    current_price = clean_price(result.data[0]["price"])
+                    company = result.data[0]["company"]
+                    signal = result.data[0]["signal"]
+                else:
+                    current_price = buy_price
+                    company = ticker
+                    signal = "NO DATA"
+                
+                current_value = qty * current_price
+                cost_basis = qty * buy_price
+                pnl = current_value - cost_basis
+                pnl_pct = ((current_price - buy_price) / buy_price) * 100 if buy_price > 0 else 0
+                total_value += current_value
+                
+                portfolio.append({
+                    "ticker": ticker,
+                    "company": company,
+                    "quantity": qty,
+                    "buy_price": buy_price,
+                    "current_price": current_price,
+                    "current_value": current_value,
+                    "pnl": pnl,
+                    "pnl_pct": round(pnl_pct, 2),
+                    "signal": signal
+                })
+            
+            # build summary
+            lines = [f"Portfolio Audit — Total Value: ₦{total_value:,.2f}\n"]
+            for h in portfolio:
+                weight = (h["current_value"] / total_value * 100) if total_value > 0 else 0
+                lines.append(
+                    f"{h['ticker']} ({h['company']}): "
+                    f"{h['quantity']} shares @ ₦{h['current_price']} | "
+                    f"Value: ₦{h['current_value']:,.0f} ({weight:.1f}% of portfolio) | "
+                    f"P&L: {h['pnl_pct']}% | Signal: {h['signal']}"
+                )
+            
+            return "\n".join(lines)
+
         
         elif tool_name == "get_stock_news":
             ticker = tool_input["ticker"].upper()

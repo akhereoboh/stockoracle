@@ -69,7 +69,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         register_user(telegram_id, name)
         user = get_user(telegram_id)
 
-    if not has_accepted_terms(user):
+    # always check terms — existing users who haven't accepted must also see them
+    if not user or not user.get("terms_accepted"):
         keyboard = [[
             InlineKeyboardButton("✅ I Accept", callback_data="accept_terms"),
             InlineKeyboardButton("❌ I Decline", callback_data="decline_terms")
@@ -81,6 +82,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await send_welcome(update, name)
+
+async def check_terms(update: Update) -> bool:
+    telegram_id = update.effective_user.id
+    user = get_user(telegram_id)
+    if not user or not user.get("terms_accepted"):
+        await update.message.reply_text(
+            "Please send /start first and accept our terms to use StockOracle."
+        )
+        return False
+    return True
 
 async def send_welcome(update, name):
     await update.message.reply_text(
@@ -115,25 +126,25 @@ async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "terms_accepted_at": datetime.now(UTC).isoformat()
         }).eq("telegram_id", telegram_id).execute()
 
-        await query.edit_message_text("✅ Terms accepted. Welcome to StockOracle!")
+        await query.edit_message_text("Terms accepted. Welcome to StockOracle!")
         await context.bot.send_message(
             chat_id=telegram_id,
             text=f"👋 Welcome to StockOracle, {name}!\n\n"
-            "I'm your AI-powered Nigerian stock market analyst.\n\n"
-            "Commands:\n"
+            "I scan 450+ NGX stocks daily to find the best opportunities.\n\n"
             "/signals — this week's top picks\n"
             "/explain GTCO — analyse any stock\n"
             "/subscribe — unlock full access\n"
             "/mystatus — check your subscription\n"
-            "/performance — our track record\n"
             "/help — all commands\n\n"
-            "Try asking me anything about Nigerian stocks!"
+            "Ask me anything about Nigerian stocks!"
         )
-    else:
+
+    elif query.data == "decline_terms":
         await query.edit_message_text(
-            "You declined the terms. You cannot use StockOracle without accepting them.\n\n"
+            "You declined the terms. StockOracle cannot be used without accepting them.\n\n"
             "Send /start if you change your mind."
         )
+        # leave the bot — user declined
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -148,6 +159,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
     telegram_id = update.effective_user.id
     user = get_user(telegram_id)
 
@@ -190,6 +203,8 @@ async def signals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 async def explain(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
     telegram_id = update.effective_user.id
     user = get_user(telegram_id)
     args = context.args
@@ -233,6 +248,8 @@ async def explain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
     keyboard = [
         [InlineKeyboardButton("Basic — ₦5,999/month", callback_data="subscribe_basic")],
         [InlineKeyboardButton("Pro — ₦9,999/month", callback_data="subscribe_pro")],
@@ -266,6 +283,8 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
     telegram_id = update.effective_user.id
     name = update.effective_user.first_name or "there"
 
@@ -294,7 +313,63 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Use /subscribe to upgrade."
         )
 
+async def audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+    telegram_id = update.effective_user.id
+    user_name = update.effective_user.first_name or "User"
+    user = get_user(telegram_id)
+
+    if not is_pro(user):
+        await update.message.reply_text(
+            "Portfolio audit is a Pro feature.\n\n"
+            "Upgrade to Pro (₦9,999/month) to get:\n"
+            "- Full portfolio audit with sector breakdown\n"
+            "- Concentration risk scoring\n"
+            "- PDF report you can save and share\n\n"
+            "Use /subscribe to upgrade."
+        )
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Paste your holdings after /audit like this:\n\n"
+            "/audit 5000 GTCO at 48, 2000 MTNN at 218, 10000 WEMABANK at 34\n\n"
+            "Format: quantity TICKER at buy_price"
+        )
+        return
+
+    holdings_text = " ".join(args)
+    thinking_msg = await update.message.reply_text("📊 Generating your portfolio audit...")
+
+    try:
+        from app.pdf_generator import generate_portfolio_pdf
+        import io
+
+        pdf_bytes = generate_portfolio_pdf(holdings_text, user_name)
+
+        if not pdf_bytes:
+            await thinking_msg.edit_text(
+                "Could not parse your holdings. Please use this format:\n"
+                "/audit 5000 GTCO at 48, 2000 MTNN at 218"
+            )
+            return
+
+        await thinking_msg.delete()
+        await update.message.reply_document(
+            document=io.BytesIO(pdf_bytes),
+            filename=f"StockOracle_Portfolio_Audit_{datetime.now().strftime('%Y%m%d')}.pdf",
+            caption="Your portfolio audit is ready. Review the risk assessment and sector breakdown carefully."
+        )
+    except Exception as e:
+        logger.error(f"Audit error: {e}")
+        await thinking_msg.edit_text("Something went wrong generating your audit. Please try again.")
+
+
 async def performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
     result = supabase.table("signal_history")\
         .select("*")\
         .neq("outcome", "pending")\
@@ -368,6 +443,10 @@ async def handle_email_for_subscription(update: Update, context: ContextTypes.DE
     return True
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+
+    if not await check_terms(update):
+        return
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "there"
     user_message = update.message.text or ""

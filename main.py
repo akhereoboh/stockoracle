@@ -9,6 +9,7 @@ from app.broadcaster import broadcast_weekly_signals, send_tp_alerts
 import uvicorn
 from app.webhook import webhook_app
 import logging
+from app.bot import audit
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ async def main():
     application.add_handler(CommandHandler("subscribe", subscribe))
     application.add_handler(CommandHandler("mystatus", my_status))
     application.add_handler(CommandHandler("clear", clear))
+    application.add_handler(CommandHandler("audit", audit))
     application.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^subscribe_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_message))
