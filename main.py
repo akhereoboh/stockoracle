@@ -5,7 +5,7 @@ from app.bot import (start, help_command, signals, explain, performance,
                      subscribe, subscribe_callback, terms_callback, my_status,
                      clear, handle_message, audit, watchlist_add, 
                      watchlist_view, watchlist_remove, referral, run_bot)
-from app.admin import admin_stats, admin_upgrade, admin_downgrade, admin_users
+from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users
 from app.config import TELEGRAM_BOT_TOKEN
 from app.scheduler import start_scheduler
 from app.broadcaster import broadcast_weekly_signals, send_tp_alerts, send_watchlist_updates
@@ -37,7 +37,7 @@ async def main():
     application.add_handler(CommandHandler("referral", referral))
 
     # admin commands
-    application.add_handler(CommandHandler("analytics", admin_stats))
+    application.add_handler(CommandHandler("analytics", analytics))
     application.add_handler(CommandHandler("adminupgrade", admin_upgrade))
     application.add_handler(CommandHandler("admindowngrade", admin_downgrade))
     application.add_handler(CommandHandler("adminusers", admin_users))
