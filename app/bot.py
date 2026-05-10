@@ -283,8 +283,25 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if query.data.startswith("subscribe_"):
         plan = "basic" if query.data == "subscribe_basic" else "pro"
         context.user_data["pending_plan"] = plan
+        
+        keyboard = [
+            [InlineKeyboardButton("Pay with Paystack", callback_data=f"pay_paystack_{plan}")],
+            [InlineKeyboardButton("Pay with Flutterwave", callback_data=f"pay_flutterwave_{plan}")],
+            [InlineKeyboardButton("Pay with Korapay", callback_data=f"pay_korapay_{plan}")],
+        ]
         await query.edit_message_text(
-            "To complete your subscription, please reply with your email address:"
+            "Choose your payment method:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("pay_"):
+        parts = query.data.split("_")
+        provider = parts[1]
+        plan = parts[2]
+        context.user_data["pending_plan"] = plan
+        context.user_data["pending_provider"] = provider
+        await query.edit_message_text(
+            f"Please reply with your email address to continue with {provider.capitalize()}:"
         )
 
 async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -418,6 +435,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_email_for_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     telegram_id = update.effective_user.id
     pending_plan = context.user_data.get("pending_plan")
+    pending_provider = context.user_data.get("pending_provider", "paystack")
 
     if not pending_plan:
         return False
@@ -427,10 +445,19 @@ async def handle_email_for_subscription(update: Update, context: ContextTypes.DE
         await update.message.reply_text("That doesn't look like a valid email. Please try again.")
         return True
 
-    plan_code = PAYSTACK_BASIC_PLAN if pending_plan == "basic" else PAYSTACK_PRO_PLAN
-    link = create_subscription_link(email, plan_code, telegram_id)
+    link = None
+    if pending_provider == "paystack":
+        plan_code = PAYSTACK_BASIC_PLAN if pending_plan == "basic" else PAYSTACK_PRO_PLAN
+        link = create_subscription_link(email, plan_code, telegram_id)
+    elif pending_provider == "flutterwave":
+        from app.payments import create_flutterwave_link
+        link = create_flutterwave_link(email, pending_plan, telegram_id)
+    elif pending_provider == "korapay":
+        from app.payments import create_korapay_link
+        link = create_korapay_link(email, pending_plan, telegram_id)
 
     context.user_data.pop("pending_plan", None)
+    context.user_data.pop("pending_provider", None)
 
     if not link:
         await update.message.reply_text("Something went wrong. Please try /subscribe again.")

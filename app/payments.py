@@ -206,3 +206,80 @@ def reward_referrer(referred_id: int):
     except Exception as e:
         logger.error(f"Reward referrer error: {e}")
         return None
+
+def create_flutterwave_link(email: str, plan: str, telegram_id: int) -> str:
+    try:
+        from app.config import FLUTTERWAVE_SECRET_KEY
+        amount = 9999 if plan == "pro" else 5999
+        tier_name = "Pro" if plan == "pro" else "Basic"
+        
+        headers = {
+            "Authorization": f"Bearer {FLUTTERWAVE_SECRET_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "tx_ref": f"SO_{telegram_id}_{int(datetime.now(UTC).timestamp())}",
+            "amount": amount,
+            "currency": "NGN",
+            "redirect_url": "https://sireai.uk",
+            "customer": {"email": email},
+            "meta": {
+                "telegram_id": str(telegram_id),
+                "plan": plan
+            },
+            "customizations": {
+                "title": f"StockOracle {tier_name}",
+                "description": f"StockOracle {tier_name} subscription"
+            }
+        }
+        response = httpx.post(
+            "https://api.flutterwave.com/v3/payments",
+            json=data,
+            headers=headers,
+            timeout=30
+        )
+        result = response.json()
+        logger.info(f"Flutterwave response: {result}")
+        if result.get("status") == "success":
+            return result["data"]["link"]
+        return None
+    except Exception as e:
+        logger.error(f"Flutterwave error: {e}")
+        return None
+
+def create_korapay_link(email: str, plan: str, telegram_id: int) -> str:
+    try:
+        from app.config import KORAPAY_SECRET_KEY
+        amount = 9999 if plan == "pro" else 5999
+        tier_name = "Pro" if plan == "pro" else "Basic"
+        
+        headers = {
+            "Authorization": f"Bearer {KORAPAY_SECRET_KEY}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "amount": amount,
+            "currency": "NGN",
+            "reference": f"SO_{telegram_id}_{int(datetime.now(UTC).timestamp())}",
+            "customer": {"email": email, "name": email},
+            "metadata": {
+                "telegram_id": str(telegram_id),
+                "plan": plan
+            },
+            "notification_url": "https://sireai.uk/webhook/korapay",
+            "merchant_bears_cost": False
+        }
+        response = httpx.post(
+            "https://api.korapay.com/merchant/api/v1/charges/initialize",
+            json=data,
+            headers=headers,
+            timeout=30
+        )
+        result = response.json()
+        logger.info(f"Korapay response: {result}")
+        if result.get("status"):
+            return result["data"]["checkout_url"]
+        return None
+    except Exception as e:
+        logger.error(f"Korapay error: {e}")
+        return None

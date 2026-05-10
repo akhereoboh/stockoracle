@@ -12,8 +12,9 @@ ADMIN_IDS = [1696237112]  # your telegram ID
 def is_admin(telegram_id: int) -> bool:
     return telegram_id in ADMIN_IDS
 
-async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
         return
 
     users = supabase.table("users").select("*").execute()
