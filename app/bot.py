@@ -255,9 +255,11 @@ async def explain(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
         return
+    
     keyboard = [
         [InlineKeyboardButton("Basic — ₦5,999/month", callback_data="subscribe_basic")],
         [InlineKeyboardButton("Pro — ₦9,999/month", callback_data="subscribe_pro")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="subscribe_cancel")],
     ]
     await update.message.reply_text(
         "StockOracle Plans:\n\n"
@@ -268,8 +270,8 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "- Full AI market analysis\n\n"
         "Pro — ₦9,999/month\n"
         "- Everything in Basic\n"
-        "- Daily signals (not just weekly)\n"
-        "- Portfolio audit\n"
+        "- Daily signals Tuesday to Friday\n"
+        "- Portfolio audit with PDF report\n"
         "- Priority AI responses\n"
         "- Full performance track record\n\n"
         "Choose your plan:",
@@ -280,16 +282,25 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
 
+    if query.data == "subscribe_cancel" or query.data == "pay_cancel":
+        context.user_data.pop("pending_plan", None)
+        context.user_data.pop("pending_provider", None)
+        await query.edit_message_text("Subscription cancelled. Send /subscribe anytime to upgrade.")
+        return
+
     if query.data.startswith("subscribe_"):
         plan = "basic" if query.data == "subscribe_basic" else "pro"
         context.user_data["pending_plan"] = plan
-        
+
         keyboard = [
             [InlineKeyboardButton("Pay with Paystack", callback_data=f"pay_paystack_{plan}")],
             [InlineKeyboardButton("Pay with Flutterwave", callback_data=f"pay_flutterwave_{plan}")],
             [InlineKeyboardButton("Pay with Korapay", callback_data=f"pay_korapay_{plan}")],
+            [InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")],
         ]
+        tier = "Basic" if plan == "basic" else "Pro"
         await query.edit_message_text(
+            f"You selected {tier} (₦{'5,999' if plan == 'basic' else '9,999'}/month)\n\n"
             "Choose your payment method:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -301,7 +312,8 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data["pending_plan"] = plan
         context.user_data["pending_provider"] = provider
         await query.edit_message_text(
-            f"Please reply with your email address to continue with {provider.capitalize()}:"
+            f"Please reply with your email address to continue with {provider.capitalize()}:\n\n"
+            "Or send /cancel to stop."
         )
 
 async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -334,6 +346,12 @@ async def my_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "- Portfolio audit\n\n"
             "Use /subscribe to upgrade."
         )
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("pending_plan", None)
+    context.user_data.pop("pending_provider", None)
+    await update.message.reply_text("Cancelled. Send /subscribe anytime to upgrade.")
+
 
 async def audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
