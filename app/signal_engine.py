@@ -5,6 +5,67 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
+def is_tradeable_equity(ticker: str) -> bool:
+    import re
+    # exclude government bonds (FGS, FG, LAB, DAN, etc followed by year+series)
+    bond_patterns = [
+        r'^FGS\d+',   # FGS202770
+        r'^FG\d+',    # FG192053S3
+        r'^LAB\d+',   # LAB2027T2
+        r'^DAN\d+',   # DAN2027S2
+        r'^NMR\d+',   # NMR2030S1
+        r'^LFZ\d+',   # LFZ2032S1
+        r'^ADV\d+',   # ADV2028S1
+        r'^EPF\d+',
+        r'^OSB\d+',
+        r'^PBS\d+',
+        r'^CMB\d+',
+        r'^SIM\d+',
+        r'^TSL\d+',
+        r'^UBN\d+',
+        r'^BUA\d+',
+        r'^CIL\d+',
+        r'^DIF\d+',
+        r'^FID\d+',
+        r'^IAO\d+',
+        r'^KGB\d+',
+        r'^MCI\d+',
+        r'^NAB\d+',
+        r'^ODB\d+',
+        r'^AXA\d+',
+        r'^ABB\d+',
+        r'^BAU\d+',
+        r'^DCM\d+',
+        r'^EKI\d+',
+        r'^NSP\d+',
+        r'^LMS\d+',
+        r'^EFS\d+',
+        r'^FMN\d+',
+        r'^FBQ\d+',
+        r'^TAJ\d+',
+        r'^FGEUR',    # Eurobonds
+        r'^FGSUK',    # UK bonds
+        r'^MECU',
+        r'^COLE',
+        r'^UCAP\d+',
+        r'^CP2\d+',
+        r'^RR2\d+',   # Rights issues
+        r'^FF[A-Z]+', # FFF funds
+        r'^NGX[A-Z]+', # NGX indices
+        r'^VET[A-Z]+', # VET ETFs
+        r'^STANBICETF',
+        r'^SIAMLETF',
+        r'^VSPBONDETF',
+        r'^GREENWETF',
+        r'^NGXLOTUS',
+        r'^NGXPENBRD',
+        r'^\d+$',     # pure numbers
+    ]
+    for pattern in bond_patterns:
+        if re.match(pattern, ticker):
+            return False
+    return True
+
 def clean_price(price_str: str) -> float:
     try:
         return float(str(price_str).replace("₦", "").replace(",", "").strip())
@@ -184,6 +245,9 @@ def run_signal_engine() -> list:
     for stock in stocks:
         ticker = stock["ticker"]
 
+        if not is_tradeable_equity(ticker):
+            continue
+
         if ticker in recently_signalled:
             continue
 
@@ -287,3 +351,5 @@ def update_signal_outcomes():
         }).eq("id", record["id"]).execute()
 
         logger.info(f"{ticker} outcome: {outcome} | Gain: {gain}%")
+
+
