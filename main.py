@@ -44,7 +44,7 @@ async def main():
 
     # callbacks
     application.add_handler(CallbackQueryHandler(terms_callback, pattern="^(accept|decline)_terms$"))
-    application.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^subscribe_"))
+    application.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^(subscribe_|pay_)"))
 
     # messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
