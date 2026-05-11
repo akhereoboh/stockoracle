@@ -60,6 +60,26 @@ def is_tradeable_equity(ticker: str) -> bool:
         r'^NGXLOTUS',
         r'^NGXPENBRD',
         r'^\d+$',     # pure numbers
+        r'^LOTUSHAL',
+        r'^NGXLOTUS',
+        r'HAL\d*$',     # halal funds
+        r'REIT$',       # REITs if you want to exclude
+        r'^MOFIREIF',
+        r'^NREIT',
+        r'^SFSREIT',
+        r'^UHOMREIT',
+        r'^UPDCREIT',
+        r'^NIDF',
+        r'^FFFBN',      # FBN funds
+        r'^FFUNC',      # UNC funds
+        r'^FFLEGY',     # legacy funds
+        r'^FFFSDHC',
+        r'^FFIONE',
+        r'^FFFRONT',
+        r'^MERVAL',     # Meristem value fund
+        r'^MERG',       # Meristem growth
+        r'^CNIF',
+        r'^AVAIF',
     ]
     for pattern in bond_patterns:
         if re.match(pattern, ticker):
