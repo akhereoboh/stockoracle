@@ -1,47 +1,60 @@
 import logging
+import httpx
 from app.database import supabase
-from app.payments import get_user
+from app.config import TELEGRAM_BOT_TOKEN
 from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
-async def broadcast_weekly_signals(bot):
-    logger.info("Broadcasting weekly signals to paid users...")
+async def _send(chat_id: int, text: str):
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=10
+            )
+    except Exception as e:
+        logger.error(f"Send failed for {chat_id}: {e}")
+
+def get_active_paid_users(tier_filter: list = None) -> list:
+    query = supabase.table("users").select("*")
+    if tier_filter:
+        query = query.in_("tier", tier_filter)
+    result = query.execute()
     
-    # get all paid users
-    result = supabase.table("users")\
-        .select("*")\
-        .in_("tier", ["basic", "pro"])\
-        .execute()
-    
-    paid_users = []
+    active = []
     for user in (result.data or []):
         expires_at = user.get("expires_at")
         if expires_at:
             try:
-                from datetime import datetime, UTC
                 exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
                 if exp > datetime.now(UTC):
-                    paid_users.append(user)
+                    active.append(user)
             except:
                 continue
-    
-    if not paid_users:
-        logger.info("No paid users to broadcast to")
-        return
-    
-    # get this week's signals
+    return active
+
+async def broadcast_weekly_signals():
+    logger.info("Broadcasting weekly signals...")
+
     signals_result = supabase.table("signals")\
         .select("*")\
         .eq("status", "active")\
         .order("created_at", desc=True)\
         .limit(5)\
         .execute()
-    
+
     if not signals_result.data:
         logger.info("No signals to broadcast")
         return
-    
+
+    paid_users = get_active_paid_users(["basic", "pro"])
+
+    if not paid_users:
+        logger.info("No paid users to broadcast to")
+        return
+
     msg = "📊 Good morning! This week's StockOracle signals are ready.\n\n"
     for i, s in enumerate(signals_result.data, 1):
         msg += (
@@ -51,45 +64,34 @@ async def broadcast_weekly_signals(bot):
             f"TP2: ₦{s['tp2']} (+12%)\n"
             f"Stop Loss: ₦{s['stop_loss']}\n\n"
         )
-    
     msg += "⚠️ Always manage your risk. Good luck this week!"
-    
+
     sent = 0
     for user in paid_users:
-        try:
-            await bot.send_message(chat_id=user["telegram_id"], text=msg)
-            sent += 1
-        except Exception as e:
-            logger.error(f"Failed to send to {user['telegram_id']}: {e}")
-    
+        await _send(user["telegram_id"], msg)
+        sent += 1
+
     logger.info(f"Broadcast sent to {sent} users")
 
-async def send_tp_alerts(bot):
+async def send_tp_alerts():
     logger.info("Checking take profit alerts...")
-    
-    # get recently closed signals
+
     closed = supabase.table("signal_history")\
         .select("*")\
         .neq("outcome", "pending")\
         .is_("alert_sent", "null")\
         .execute()
-    
+
     if not closed.data:
         return
-    
-    # get all paid users
-    users_result = supabase.table("users")\
-        .select("*")\
-        .in_("tier", ["basic", "pro"])\
-        .execute()
-    
-    paid_users = users_result.data or []
-    
+
+    paid_users = get_active_paid_users(["basic", "pro"])
+
     for record in closed.data:
         ticker = record["ticker"]
         outcome = record["outcome"]
         gain = record.get("gain_percentage", 0)
-        
+
         if outcome == "tp1_hit":
             msg = (
                 f"🎯 Take Profit Hit!\n\n"
@@ -102,16 +104,12 @@ async def send_tp_alerts(bot):
                 f"🛑 Stop Loss Hit\n\n"
                 f"{ticker} has hit the stop loss level.\n"
                 f"Loss: {gain}%\n\n"
-                f"This is risk management working as intended. Capital preserved for the next opportunity."
+                f"Risk management working as intended. Capital preserved for the next opportunity."
             )
-        
+
         for user in paid_users:
-            try:
-                await bot.send_message(chat_id=user["telegram_id"], text=msg)
-            except Exception as e:
-                logger.error(f"Alert failed for {user['telegram_id']}: {e}")
-        
-        # mark alert as sent
+            await _send(user["telegram_id"], msg)
+
         supabase.table("signal_history")\
             .update({"alert_sent": True})\
             .eq("id", record["id"])\
@@ -119,23 +117,20 @@ async def send_tp_alerts(bot):
 
     logger.info("Take profit alerts done")
 
-
-async def send_watchlist_updates(bot):
+async def send_watchlist_updates():
     logger.info("Sending watchlist updates...")
-    
+
     result = supabase.table("watchlist").select("telegram_id, ticker").execute()
-    
     if not result.data:
         return
-    
-    # group by user
+
     user_tickers = {}
     for row in result.data:
         tid = row["telegram_id"]
         if tid not in user_tickers:
             user_tickers[tid] = []
         user_tickers[tid].append(row["ticker"])
-    
+
     for telegram_id, tickers in user_tickers.items():
         msg = "📋 Your Watchlist Update\n\n"
         for ticker in tickers:
@@ -145,12 +140,9 @@ async def send_watchlist_updates(bot):
                 .order("scraped_at", desc=True)\
                 .limit(1)\
                 .execute()
-            
+
             if stock.data:
                 s = stock.data[0]
                 msg += f"{ticker} — {s['price']} | {s['change']} | {s['signal']}\n"
-        
-        try:
-            await bot.send_message(chat_id=telegram_id, text=msg)
-        except Exception as e:
-            logger.error(f"Watchlist update failed for {telegram_id}: {e}")
+
+        await _send(telegram_id, msg)

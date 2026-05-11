@@ -116,7 +116,7 @@ async def send_welcome(update, name):
         "/mystatus — check your subscription\n"
         "/performance — our track record\n"
         "/help — all commands\n\n"
-        "Try asking me anything about Nigerian stocks!"
+        "Try asking me anything about Nigerian stocks — I'm here to help you invest properly."
     )
 
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -494,14 +494,13 @@ async def handle_email_for_subscription(update: Update, context: ContextTypes.DE
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-
-    if not await check_terms(update):
-        return
-    user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "there"
     user_message = update.message.text or ""
     image_data = None
     image_mime = None
+
+    if not await check_terms(update):
+        return
 
     if context.user_data.get("pending_plan"):
         handled = await handle_email_for_subscription(update, context)
@@ -516,17 +515,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_message = update.message.caption or ""
 
     user = get_user(user_id)
-    if not is_paid(user):
-        today_key = f"ai_{user_id}_{datetime.now(UTC).date()}"
-        count = context.bot_data.get(today_key, 0)
-        if count >= 5:
-            await update.message.reply_text(
-                "You've used your 5 free AI messages today.\n"
-                "Subscribe for unlimited AI analysis.\n\n"
-                "Use /subscribe to upgrade."
-            )
-            return
-        context.bot_data[today_key] = count + 1
 
     if user_id not in user_histories:
         user_histories[user_id] = []

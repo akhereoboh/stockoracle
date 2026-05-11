@@ -65,15 +65,13 @@ Only return the JSON, nothing else."""
         logger.error(f"Analysis error: {e}")
         return {"tickers": [], "sentiment": "neutral", "impact": "low", "summary": "", "action": ""}
 
-async def run_news_monitor(bot=None):
+async def run_news_monitor():
     logger.info("Running news monitor...")
     articles = get_all_news()
-
     high_impact = []
 
     for article in articles:
         headline = article["headline"]
-
         if already_stored(headline):
             continue
 
@@ -94,29 +92,12 @@ async def run_news_monitor(bot=None):
 
     logger.info(f"Found {len(high_impact)} high impact stories")
 
-    if high_impact and bot:
-        await send_news_alerts(bot, high_impact)
+    if high_impact:
+        await send_news_alerts(high_impact)
 
-async def send_news_alerts(bot, stories: list):
-    result = supabase.table("users")\
-        .select("telegram_id, tier, expires_at")\
-        .in_("tier", ["basic", "pro"])\
-        .execute()
-
-    paid_users = []
-    from datetime import datetime, UTC
-    for user in (result.data or []):
-        expires_at = user.get("expires_at")
-        if expires_at:
-            try:
-                exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-                if exp > datetime.now(UTC):
-                    paid_users.append(user)
-            except:
-                continue
-
-    if not paid_users:
-        return
+async def send_news_alerts(stories: list):
+    from app.broadcaster import get_active_paid_users, _send
+    paid_users = get_active_paid_users(["basic", "pro"])
 
     for story in stories:
         tickers = story.get("tickers", [])
@@ -137,15 +118,11 @@ async def send_news_alerts(bot, stories: list):
             f"What to consider: {action}\n\n"
             f"Source: {source}"
         )
-
         if url:
             msg += f"\n{url}"
 
         for user in paid_users:
-            try:
-                await bot.send_message(chat_id=user["telegram_id"], text=msg)
-            except Exception as e:
-                logger.error(f"News alert failed for {user['telegram_id']}: {e}")
+            await _send(user["telegram_id"], msg)
 
         supabase.table("news_alerts")\
             .update({"alert_sent": True})\
