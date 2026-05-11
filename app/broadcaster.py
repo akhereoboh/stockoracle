@@ -22,16 +22,21 @@ def get_active_paid_users(tier_filter: list = None) -> list:
     if tier_filter:
         query = query.in_("tier", tier_filter)
     result = query.execute()
-    
+
     active = []
     for user in (result.data or []):
         expires_at = user.get("expires_at")
         if expires_at:
             try:
                 exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                # make naive datetime timezone-aware
+                if exp.tzinfo is None:
+                    from datetime import timezone
+                    exp = exp.replace(tzinfo=timezone.utc)
                 if exp > datetime.now(UTC):
                     active.append(user)
-            except:
+            except Exception as e:
+                logger.error(f"Date parse error for {user.get('telegram_id')}: {e}")
                 continue
     return active
 
