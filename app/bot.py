@@ -33,15 +33,20 @@ Do you accept these terms?"""
 def is_paid(user: dict) -> bool:
     if not user:
         return False
+
     if user.get("tier") not in ["basic", "pro"]:
         return False
+
     expires_at = user.get("expires_at")
     if not expires_at:
         return False
+
     try:
+        from datetime import timezone
         exp = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
         if exp <= datetime.now(UTC):
-            # auto downgrade
             supabase.table("users").update({
                 "tier": "free"
             }).eq("telegram_id", user["telegram_id"]).execute()
