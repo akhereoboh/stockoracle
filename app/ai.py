@@ -288,7 +288,7 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 
 import base64
 
-def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, image_mime: str = None, history: list = None) -> tuple:
+def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, image_mime: str = None, history: list = None, user_tier: str = "free") -> tuple:
     if history is None:
         history = []
     
@@ -323,6 +323,14 @@ Commands:
 SUBSCRIPTION PLANS:
 Basic ₦5,999/month — all 5 weekly signals every Monday, take profit and stop loss alerts, unlimited stock lookups, full AI analysis, watchlist, news alerts
 Pro ₦9,999/month — everything in Basic plus daily signals Tuesday to Friday and full portfolio audit with PDF report
+
+CURRENT USER STATUS:
+This user is on the {user_tier} tier.
+
+{"You are speaking with a PAID subscriber. Give them full, detailed investment guidance. Answer their questions completely and helpfully. Use your tools to fetch live data. Guide them properly on what to buy, when to buy, how to size positions, and how to manage risk. This is what they are paying for." if user_tier in ["basic", "pro"] else "This user has not subscribed yet. Do not give them full investment guidance. Warmly convince them to subscribe to get the full service."}
+
+{"As a PRO subscriber, proactively offer to run a portfolio audit if they mention their holdings, and remind them they get daily signals Tuesday to Friday." if user_tier == "pro" else ""}
+
 
 There is no free tier and no free trial. Every user must subscribe to access StockOracle's features.
 

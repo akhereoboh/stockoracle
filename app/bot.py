@@ -520,6 +520,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_message = update.message.caption or ""
 
     user = get_user(user_id)
+    user_tier = "pro" if is_pro(user) else "basic" if is_paid(user) else "free"
 
     if user_id not in user_histories:
         user_histories[user_id] = []
@@ -527,7 +528,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     thinking_msg = await update.message.reply_text("🤔 Analysing...")
 
     response, updated_history = get_ai_response(
-        user_message, user_name, image_data, image_mime, user_histories[user_id]
+        user_message, user_name, image_data, image_mime, 
+        user_histories[user_id], user_tier
     )
 
     user_histories[user_id] = updated_history[-20:]
