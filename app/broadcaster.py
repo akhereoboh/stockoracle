@@ -3,6 +3,9 @@ import httpx
 from app.database import supabase
 from app.config import TELEGRAM_BOT_TOKEN
 from datetime import datetime, UTC
+from app.signal_engine import is_tradeable_equity
+import asyncio
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +97,15 @@ async def send_tp_alerts():
 
     for record in closed.data:
         ticker = record["ticker"]
+        
+        # skip non-equity tickers silently
+        if not is_tradeable_equity(ticker):
+            supabase.table("signal_history")\
+                .update({"alert_sent": True})\
+                .eq("id", record["id"])\
+                .execute()
+            continue
+
         outcome = record["outcome"]
         gain = record.get("gain_percentage", 0)
 
@@ -114,6 +126,7 @@ async def send_tp_alerts():
 
         for user in paid_users:
             await _send(user["telegram_id"], msg)
+            await asyncio.sleep(2)
 
         supabase.table("signal_history")\
             .update({"alert_sent": True})\
