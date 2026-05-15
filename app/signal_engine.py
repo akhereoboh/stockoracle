@@ -83,10 +83,9 @@ def get_latest_stocks() -> list:
     return result.data or []
 
 def get_all_history_bulk(days: int = 10) -> dict:
-    """Fetch all stock history in ONE query instead of one per stock"""
     since = (date.today() - timedelta(days=days)).isoformat()
     result = supabase.table("stocks")\
-        .select("ticker, price, change, trade_date")\
+        .select("ticker, price, change, trade_date, volume")\
         .gte("trade_date", since)\
         .order("trade_date", desc=False)\
         .execute()
@@ -162,46 +161,96 @@ def calculate_volume_score(stock: dict, history: list) -> float:
     except:
         return 0.0
 
+def get_average_volume(history: list) -> float:
+    volumes = []
+    for h in history:
+        vol = clean_volume(h.get("volume", "0")) if "volume" in h else 0
+        if vol > 0:
+            volumes.append(vol)
+    if not volumes:
+        return 0
+    return sum(volumes) / len(volumes)
+
+def get_price_trend(history: list) -> str:
+    if len(history) < 5:
+        return "unknown"
+    prices = [clean_price(h["price"]) for h in history if clean_price(h["price"]) > 0]
+    if len(prices) < 5:
+        return "unknown"
+    avg5 = sum(prices[-5:]) / 5
+    avg10 = sum(prices) / len(prices)
+    if avg5 > avg10:
+        return "uptrend"
+    elif avg5 < avg10 * 0.97:
+        return "downtrend"
+    return "sideways"
+
 def score_stock(stock: dict, history: list) -> float:
     score = 0.0
     signal = stock.get("signal", "").upper()
     change = clean_change(stock.get("change", "0%"))
     price = clean_price(stock.get("price", "₦0"))
+    today_volume = clean_volume(stock.get("volume", "0"))
 
     # hard exclusions
     if "SELL" in signal or "NO DATA" in signal:
         return 0.0
-    if price < 1:
+
+    # exclude HOLD signals — only pure BUY
+    if "BUY" not in signal:
         return 0.0
 
-    # signal score (40 points max)
-    if "BUY" in signal:
-        score += 40
-    elif "HOLD" in signal:
-        score += 10
+    # minimum price filter — exclude penny stocks under ₦5
+    if price < 5:
+        return 0.0
 
-    # today's momentum (20 points max)
+    # minimum liquidity — at least 100k shares traded today
+    if today_volume > 0 and today_volume < 100000:
+        return 0.0
+
+    # trend filter — must be in uptrend or sideways, not downtrend
+    trend = get_price_trend(history)
+    if trend == "downtrend":
+        return 0.0
+
+    # BUY signal score
+    score += 40
+
+    # today's momentum
     if 0 < change <= 9:
         score += min(change * 2, 20)
     elif change > 9:
-        score -= 10  # suspicious pump
+        score -= 10
 
-    # multi-day momentum (25 points max)
+    # multi-day momentum
     momentum = calculate_momentum(history)
     if momentum > 0:
         score += min(momentum * 1.5, 25)
     elif momentum < -10:
         score -= 15
 
-    # consistency score (15 points max)
+    # consistency
     consistency = calculate_consistency(history)
     score += (consistency / 100) * 15
 
-    # volume score (20 points max)
-    volume_score = calculate_volume_score(stock, history)
-    score += volume_score
+    # volume confirmation — bonus for volume spike
+    avg_volume = get_average_volume(history)
+    if avg_volume > 0 and today_volume > 0:
+        volume_ratio = today_volume / avg_volume
+        if volume_ratio >= 3:
+            score += 20
+        elif volume_ratio >= 2:
+            score += 15
+        elif volume_ratio >= 1.5:
+            score += 10
+        elif volume_ratio >= 1:
+            score += 5
 
-    # history depth bonus (5 points)
+    # uptrend bonus
+    if trend == "uptrend":
+        score += 10
+
+    # history depth bonus
     if len(history) >= 5:
         score += 5
 
