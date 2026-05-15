@@ -2,58 +2,68 @@ import logging
 from app.database import supabase
 from datetime import datetime, UTC, date, timedelta
 from collections import defaultdict
+import re
 
 logger = logging.getLogger(__name__)
 
 def is_tradeable_equity(ticker: str, company: str = "") -> bool:
-    import re
     
-    # fast rule: 4+ consecutive digits = bond
+    # must be valid ticker format: letters and numbers, starts with letter
+    if not re.match(r'^[A-Z][A-Z0-9]{1,14}$', ticker):
+        return False
+    
+    # 4+ consecutive digits = bond/dated instrument
     if re.search(r'\d{4}', ticker):
         return False
     
-    # check cache first
-    try:
-        cached = supabase.table("ticker_classifications")\
-            .select("is_equity")\
-            .eq("ticker", ticker)\
-            .execute()
-        if cached.data:
-            return cached.data[0]["is_equity"]
-    except:
-        pass
+    # explicit non-equity prefixes only
+    non_equity_prefixes = [
+        'NGX', 'ASI', 'TAJSUKS', 'MECU', 'COLE',
+        'SOVRIGHTS', 'UNITYRIGHTS',
+    ]
+    for prefix in non_equity_prefixes:
+        if ticker.startswith(prefix):
+            return False
     
-    # ask Claude
-    try:
-        import anthropic
-        from app.config import ANTHROPIC_API_KEY
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=10,
-            messages=[{
-                "role": "user",
-                "content": f"Is '{ticker}' ({company}) a tradeable equity stock listed on the Nigerian Stock Exchange (NGX)? Answer only YES or NO. Bonds, ETFs tracking bonds, government securities, sukuk, REITs, mutual funds, indices, and rights issues should be NO. Regular company stocks should be YES."
-            }]
-        )
-        
-        answer = response.content[0].text.strip().upper()
-        is_equity = answer.startswith("YES")
-        
-        # cache the result
-        supabase.table("ticker_classifications").upsert({
-            "ticker": ticker,
-            "is_equity": is_equity
-        }).execute()
-        
-        logger.info(f"Classified {ticker} ({company}): {'equity' if is_equity else 'non-equity'}")
-        return is_equity
-        
-    except Exception as e:
-        logger.error(f"Classification error for {ticker}: {e}")
-        # fallback: assume equity if Claude fails
-        return True
+    # rights issues — RR prefix
+    if ticker.startswith('RR'):
+        return False
+    
+    # commercial paper — CP prefix  
+    if re.match(r'^CP\d', ticker):
+        return False
+    
+    # pure numbers
+    if ticker.isdigit():
+        return False
+    
+    # company name: only exclude if clearly a fund/bond instrument
+    if company:
+        company_upper = company.upper()
+        # very specific phrases only — not single words
+        non_equity_phrases = [
+            'MONEY MARKET FUND',
+            'FIXED INCOME FUND', 
+            'BOND FUND',
+            'SUKUK',
+            'TREASURY BILL',
+            '% FGS',      # government securities format
+            '% FGN',
+            '% TSL',
+            '% CEMC',
+            'RIGHTS ISSUE',
+            '2025 RIGHTS',
+            '2026 RIGHTS',
+            'INFRASTRUCTURE FUND',
+            'LAST UPDATED',
+            'HOLD SIGNALS',
+            'SPREAD',
+        ]
+        for phrase in non_equity_phrases:
+            if phrase in company_upper:
+                return False
+    
+    return True
 
 def clean_price(price_str: str) -> float:
     try:
