@@ -196,25 +196,26 @@ def score_stock(stock: dict, history: list) -> float:
     if "SELL" in signal or "NO DATA" in signal:
         return 0.0
 
-    # exclude HOLD signals — only pure BUY
-    if "BUY" not in signal:
+    # minimum price — exclude under ₦1
+    if price < 1:
         return 0.0
 
-    # minimum price filter — exclude penny stocks under ₦5
-    if price < 5:
+    # minimum liquidity — 50k shares
+    if today_volume > 0 and today_volume < 50000:
         return 0.0
 
-    # minimum liquidity — at least 100k shares traded today
-    if today_volume > 0 and today_volume < 100000:
-        return 0.0
-
-    # trend filter — must be in uptrend or sideways, not downtrend
+    # trend filter — exclude clear downtrends only
     trend = get_price_trend(history)
     if trend == "downtrend":
         return 0.0
 
-    # BUY signal score
-    score += 40
+    # signal score
+    if "BUY" in signal:
+        score += 40
+    elif "HOLD" in signal:
+        score += 15
+    else:
+        return 0.0
 
     # today's momentum
     if 0 < change <= 9:
@@ -233,7 +234,7 @@ def score_stock(stock: dict, history: list) -> float:
     consistency = calculate_consistency(history)
     score += (consistency / 100) * 15
 
-    # volume confirmation — bonus for volume spike
+    # volume confirmation
     avg_volume = get_average_volume(history)
     if avg_volume > 0 and today_volume > 0:
         volume_ratio = today_volume / avg_volume
