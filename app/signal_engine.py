@@ -5,86 +5,55 @@ from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
-def is_tradeable_equity(ticker: str) -> bool:
+def is_tradeable_equity(ticker: str, company: str = "") -> bool:
     import re
-    # exclude government bonds (FGS, FG, LAB, DAN, etc followed by year+series)
-    bond_patterns = [
-        r'^FGS\d+',   # FGS202770
-        r'^FG\d+',    # FG192053S3
-        r'^LAB\d+',   # LAB2027T2
-        r'^DAN\d+',   # DAN2027S2
-        r'^NMR\d+',   # NMR2030S1
-        r'^LFZ\d+',   # LFZ2032S1
-        r'^ADV\d+',   # ADV2028S1
-        r'^EPF\d+',
-        r'^OSB\d+',
-        r'^PBS\d+',
-        r'^CMB\d+',
-        r'^SIM\d+',
-        r'^TSL\d+',
-        r'^UBN\d+',
-        r'^BUA\d+',
-        r'^CIL\d+',
-        r'^DIF\d+',
-        r'^FID\d+',
-        r'^IAO\d+',
-        r'^KGB\d+',
-        r'^MCI\d+',
-        r'^NAB\d+',
-        r'^ODB\d+',
-        r'^AXA\d+',
-        r'^ABB\d+',
-        r'^BAU\d+',
-        r'^DCM\d+',
-        r'^EKI\d+',
-        r'^NSP\d+',
-        r'^LMS\d+',
-        r'^EFS\d+',
-        r'^FMN\d+',
-        r'^FBQ\d+',
-        r'^TAJ\d+',
-        r'^FGEUR',    # Eurobonds
-        r'^FGSUK',    # UK bonds
-        r'^MECU',
-        r'^COLE',
-        r'^UCAP\d+',
-        r'^CP2\d+',
-        r'^RR2\d+',   # Rights issues
-        r'^FF[A-Z]+', # FFF funds
-        r'^NGX[A-Z]+', # NGX indices
-        r'^VET[A-Z]+', # VET ETFs
-        r'^STANBICETF',
-        r'^SIAMLETF',
-        r'^VSPBONDETF',
-        r'^GREENWETF',
-        r'^NGXLOTUS',
-        r'^NGXPENBRD',
-        r'^\d+$',     # pure numbers
-        r'^LOTUSHAL',
-        r'^NGXLOTUS',
-        r'HAL\d*$',     # halal funds
-        r'REIT$',       # REITs if you want to exclude
-        r'^MOFIREIF',
-        r'^NREIT',
-        r'^SFSREIT',
-        r'^UHOMREIT',
-        r'^UPDCREIT',
-        r'^NIDF',
-        r'^FFFBN',      # FBN funds
-        r'^FFUNC',      # UNC funds
-        r'^FFLEGY',     # legacy funds
-        r'^FFFSDHC',
-        r'^FFIONE',
-        r'^FFFRONT',
-        r'^MERVAL',     # Meristem value fund
-        r'^MERG',       # Meristem growth
-        r'^CNIF',
-        r'^AVAIF',
-    ]
-    for pattern in bond_patterns:
-        if re.match(pattern, ticker):
-            return False
-    return True
+    
+    # fast rule: 4+ consecutive digits = bond
+    if re.search(r'\d{4}', ticker):
+        return False
+    
+    # check cache first
+    try:
+        cached = supabase.table("ticker_classifications")\
+            .select("is_equity")\
+            .eq("ticker", ticker)\
+            .execute()
+        if cached.data:
+            return cached.data[0]["is_equity"]
+    except:
+        pass
+    
+    # ask Claude
+    try:
+        import anthropic
+        from app.config import ANTHROPIC_API_KEY
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=10,
+            messages=[{
+                "role": "user",
+                "content": f"Is '{ticker}' ({company}) a tradeable equity stock listed on the Nigerian Stock Exchange (NGX)? Answer only YES or NO. Bonds, ETFs tracking bonds, government securities, sukuk, REITs, mutual funds, indices, and rights issues should be NO. Regular company stocks should be YES."
+            }]
+        )
+        
+        answer = response.content[0].text.strip().upper()
+        is_equity = answer.startswith("YES")
+        
+        # cache the result
+        supabase.table("ticker_classifications").upsert({
+            "ticker": ticker,
+            "is_equity": is_equity
+        }).execute()
+        
+        logger.info(f"Classified {ticker} ({company}): {'equity' if is_equity else 'non-equity'}")
+        return is_equity
+        
+    except Exception as e:
+        logger.error(f"Classification error for {ticker}: {e}")
+        # fallback: assume equity if Claude fails
+        return True
 
 def clean_price(price_str: str) -> float:
     try:
@@ -254,7 +223,6 @@ def run_signal_engine() -> list:
         logger.warning("No stocks found for today")
         return []
 
-    # fetch ALL history in one query
     logger.info("Fetching bulk history...")
     history_map = get_all_history_bulk(days=10)
     
@@ -264,8 +232,9 @@ def run_signal_engine() -> list:
     scored = []
     for stock in stocks:
         ticker = stock["ticker"]
+        company = stock.get("company", "")
 
-        if not is_tradeable_equity(ticker):
+        if not is_tradeable_equity(ticker, company):
             continue
 
         if ticker in recently_signalled:
