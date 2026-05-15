@@ -19,7 +19,7 @@ async def get_ngx_prices() -> list:
         i = 0
         while i < len(lines):
             line = lines[i]
-            if re.match(r'^[A-Z0-9]{2,15}$', line) and i + 1 < len(lines):
+            if re.match(r'^[A-Z][A-Z0-9]{1,14}$', line) and i + 1 < len(lines):
                 ticker = line
                 company = lines[i+1] if i+1 < len(lines) else ""
                 signal = ""
