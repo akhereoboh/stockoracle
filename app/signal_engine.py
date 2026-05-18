@@ -57,7 +57,13 @@ def is_tradeable_equity(ticker: str, company: str = "") -> bool:
             'INFRASTRUCTURE FUND',
             'LAST UPDATED',
             'HOLD SIGNALS',
-            'SPREAD',
+            'SPREAD', 'REAL ESTATE INVEST', 'REIT',
+            'BLANCED FUND', 'EQUITY FUND', 'GROWTH FUND',
+            'NGX', 'ASI', 'TAJSUKS', 'MECU', 'COLE',
+            'SOVRIGHTS', 'UNITYRIGHTS', 'MOFIREIF',
+            'FFFBN', 'FFUNC', 'FFLEGY', 'FFFSDHC',
+            'FFIONE', 'FFFRONT', 'CNIF', 'AVAIF',
+            'MERVAL', 'MERG', 'NIDF',
         ]
         for phrase in non_equity_phrases:
             if phrase in company_upper:

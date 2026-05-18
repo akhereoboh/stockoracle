@@ -419,7 +419,7 @@ async def performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         .select("*")\
         .neq("outcome", "pending")\
         .order("closed_at", desc=True)\
-        .limit(20)\
+        .limit(50)\
         .execute()
 
     if not result.data:
