@@ -4,6 +4,9 @@ from telegram.ext import ContextTypes
 from app.database import supabase
 from app.payments import upgrade_user, get_user
 from datetime import datetime, UTC, timedelta
+import asyncio
+import httpx
+from app.config import TELEGRAM_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -129,3 +132,93 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"{u['name']} | {u['tier']} | expires: {expires} | ID: {u['telegram_id']}\n"
 
     await update.message.reply_text(msg)
+
+
+async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage:\n"
+            "/broadcast all Your message here\n"
+            "/broadcast lite Your message here\n"
+            "/broadcast basic Your message here\n"
+            "/broadcast pro Your message here\n"
+            "/broadcast paid Your message here"
+        )
+        return
+
+    tier_filter = args[0].lower()
+    message = " ".join(args[1:])
+
+    if not message:
+        await update.message.reply_text("Please include a message after the tier.")
+        return
+
+    # get recipients based on tier
+    if tier_filter == "all":
+        result = supabase.table("users").select("telegram_id, name").execute()
+        recipients = result.data or []
+    elif tier_filter == "paid":
+        result = supabase.table("users").select("telegram_id, name, tier, expires_at").execute()
+        from datetime import timezone
+        recipients = []
+        for u in (result.data or []):
+            if u.get("tier") in ["basic", "pro"] and u.get("expires_at"):
+                try:
+                    exp = datetime.fromisoformat(u["expires_at"].replace("Z", "+00:00"))
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp > datetime.now(UTC):
+                        recipients.append(u)
+                except:
+                    pass
+    else:
+        # specific tier
+        result = supabase.table("users").select("telegram_id, name, tier, expires_at").eq("tier", tier_filter).execute()
+        from datetime import timezone
+        recipients = []
+        for u in (result.data or []):
+            if u.get("expires_at"):
+                try:
+                    exp = datetime.fromisoformat(u["expires_at"].replace("Z", "+00:00"))
+                    if exp.tzinfo is None:
+                        exp = exp.replace(tzinfo=timezone.utc)
+                    if exp > datetime.now(UTC):
+                        recipients.append(u)
+                except:
+                    pass
+            elif tier_filter not in ["basic", "pro"]:
+                recipients.append(u)
+
+    if not recipients:
+        await update.message.reply_text(f"No users found for tier: {tier_filter}")
+        return
+
+    await update.message.reply_text(f"Sending to {len(recipients)} users...")
+
+    import httpx
+    sent = 0
+    failed = 0
+    async with httpx.AsyncClient() as client:
+        for user in recipients:
+            try:
+                await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={"chat_id": user["telegram_id"], "text": message},
+                    timeout=10
+                )
+                sent += 1
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                failed += 1
+                logger.error(f"Broadcast failed for {user['telegram_id']}: {e}")
+
+    await update.message.reply_text(
+        f"Broadcast complete.\n"
+        f"Sent: {sent}\n"
+        f"Failed: {failed}"
+    )
