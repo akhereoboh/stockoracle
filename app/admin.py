@@ -7,6 +7,7 @@ from datetime import datetime, UTC, timedelta
 import asyncio
 import httpx
 from app.config import TELEGRAM_BOT_TOKEN
+from datetime import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # specific tier
         result = supabase.table("users").select("telegram_id, name, tier, expires_at").eq("tier", tier_filter).execute()
-        from datetime import timezone
+       
         recipients = []
         for u in (result.data or []):
             if u.get("expires_at"):
@@ -198,13 +199,15 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"No users found for tier: {tier_filter}")
         return
 
-    await update.message.reply_text(f"Sending to {len(recipients)} users...")
+    await update.message.reply_text(f"📤 Starting broadcast to {len(recipients)} users...")
 
-    import httpx
+    
     sent = 0
     failed = 0
+    failed_ids = []
+
     async with httpx.AsyncClient() as client:
-        for user in recipients:
+        for i, user in enumerate(recipients):
             try:
                 await client.post(
                     f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
@@ -212,13 +215,32 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     timeout=10
                 )
                 sent += 1
-                await asyncio.sleep(0.3)
             except Exception as e:
                 failed += 1
+                failed_ids.append(user["telegram_id"])
                 logger.error(f"Broadcast failed for {user['telegram_id']}: {e}")
+            
+            await asyncio.sleep(0.3)
+            
+            # progress update every 50 users
+            if (i + 1) % 50 == 0:
+                await update.message.reply_text(
+                    f"⏳ Progress: {i+1}/{len(recipients)} — "
+                    f"Sent: {sent} | Failed: {failed}"
+                )
 
-    await update.message.reply_text(
-        f"Broadcast complete.\n"
-        f"Sent: {sent}\n"
-        f"Failed: {failed}"
+    # final confirmation
+    summary = (
+        f"✅ Broadcast complete!\n\n"
+        f"Tier targeted: {tier_filter}\n"
+        f"Total recipients: {len(recipients)}\n"
+        f"Successfully sent: {sent}\n"
+        f"Failed: {failed}\n"
     )
+
+    if failed_ids:
+        summary += f"\nFailed IDs: {', '.join(str(i) for i in failed_ids[:10])}"
+        if len(failed_ids) > 10:
+            summary += f" and {len(failed_ids) - 10} more"
+
+    await update.message.reply_text(summary)
