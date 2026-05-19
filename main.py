@@ -10,6 +10,7 @@ from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users
 from app.config import TELEGRAM_BOT_TOKEN
 import uvicorn
 from app.webhook import webhook_app
+from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ async def main():
     application.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^(subscribe_|pay_)"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_message))
-
+    application.add_handler(CommandHandler("broadcast", admin_broadcast))
+    
     def run_webhook():
         uvicorn.run(webhook_app, host="0.0.0.0", port=8001, log_level="warning")
 
