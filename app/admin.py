@@ -270,8 +270,8 @@ async def launch_waitlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     launch_msg = (
         "🎉 *StockOracle is LIVE\\!*\n\n"
         "Your early access is ready\\. As a founding member your discount is locked in:\n\n"
-        "Pro: ~₦9,999/month~ ➡️ *₦6,999/month*\n"
-        "Basic: ~₦5,999/month~ ➡️ *₦3,999/month*\n\n"
+        "Premium: ~₦25,000/month~ ➡️ *₦9,999/month*\n"
+        "Pro: ~₦10,000/month~ ➡️ *₦5,999/month*\n\n"
         "This price is yours forever as long as you stay subscribed\\.\n\n"
         "Type /start to accept terms and get full access now\\!\n\n"
         "Welcome to the future of Nigerian stock investing 🚀"
