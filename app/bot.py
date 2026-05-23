@@ -5,10 +5,35 @@ from app.config import TELEGRAM_BOT_TOKEN, PAYSTACK_BASIC_PLAN, PAYSTACK_PRO_PLA
 from app.database import supabase
 from app.payments import register_user, get_user, create_subscription_link, upgrade_user
 from app.ai import get_ai_response
-from datetime import datetime, UTC
+from datetime import datetime, UTC, date
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+LAUNCH_DATE = date(2026, 5, 25)
+EXISTING_USER_IDS = [8798218891, 5217119261, 6883493615, 1696237112]
+
+WAITLIST_MSG = (
+    "👋 Welcome to StockOracle\\!\n\n"
+    "You're on our *Early Access Waitlist* 🎉\n\n"
+    "StockOracle is Nigeria's most powerful AI stock market assistant\\. "
+    "We scan 450\\+ NGX stocks daily and deliver the best trading opportunities directly to you\\.\n\n"
+    "🗓 *Launch Date: Monday, 26th May 2026*\n\n"
+    "As a founding member, you're locked in at our special launch price:\n\n"
+    "Pro: ~₦9,999/month~ ➡️ *₦6,999/month*\n"
+    "Basic: ~₦5,999/month~ ➡️ *₦3,999/month*\n\n"
+    "This discount is *exclusively* for people who join before launch\\. "
+    "Once we go live the price returns to normal\\.\n\n"
+    "You'll receive a message the moment we launch with your special access link\\.\n\n"
+    "Tell your friends — every person you refer who subscribes earns you free months\\! 🚀"
+)
+
+WAITLIST_BLOCK_MSG = (
+    "⏳ *StockOracle launches Monday 26th May 2026*\n\n"
+    "You're on the waitlist and will be notified the moment we go live "
+    "with your founding member discount\\."
+)
 
 user_histories = {}
 
@@ -73,28 +98,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user:
         register_user(telegram_id, name)
         user = get_user(telegram_id)
-        
-        # process referral if code provided
-        if context.args:
-            referral_code = context.args[0]
-            from app.payments import process_referral
-            process_referral(telegram_id, referral_code)
 
-    if not user or not user.get("terms_accepted"):
-        keyboard = [[
-            InlineKeyboardButton("✅ I Accept", callback_data="accept_terms"),
-            InlineKeyboardButton("❌ I Decline", callback_data="decline_terms")
-        ]]
-        await update.message.reply_text(
-            TERMS_TEXT,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    today = date.today()
+    launched = today >= LAUNCH_DATE
+    is_existing = telegram_id in EXISTING_USER_IDS
+
+    # existing users bypass everything
+    if is_existing:
+        if not user or not user.get("terms_accepted"):
+            keyboard = [[
+                InlineKeyboardButton("✅ I Accept", callback_data="accept_terms"),
+                InlineKeyboardButton("❌ I Decline", callback_data="decline_terms")
+            ]]
+            await update.message.reply_text(TERMS_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+        await send_welcome(update, name)
         return
 
-    await send_welcome(update, name)
+    # post launch — normal flow
+    if launched:
+        supabase.table("users").update({"waitlist": False}).eq("telegram_id", telegram_id).execute()
+        if not user or not user.get("terms_accepted"):
+            keyboard = [[
+                InlineKeyboardButton("✅ I Accept", callback_data="accept_terms"),
+                InlineKeyboardButton("❌ I Decline", callback_data="decline_terms")
+            ]]
+            await update.message.reply_text(TERMS_TEXT, reply_markup=InlineKeyboardMarkup(keyboard))
+            return
+        await send_welcome(update, name)
+        return
+
+    # pre-launch — put on waitlist
+    supabase.table("users").update({"waitlist": True}).eq("telegram_id", telegram_id).execute()
+    await update.message.reply_text(WAITLIST_MSG, parse_mode="MarkdownV2")
 
 async def check_terms(update: Update) -> bool:
     telegram_id = update.effective_user.id
+    today = date.today()
+    launched = today >= LAUNCH_DATE
+    is_existing = telegram_id in EXISTING_USER_IDS
+
+    if not launched and not is_existing:
+        user = get_user(telegram_id)
+        if user and user.get("waitlist"):
+            await update.message.reply_text(WAITLIST_BLOCK_MSG, parse_mode="MarkdownV2")
+            return False
+
     user = get_user(telegram_id)
     if not user or not user.get("terms_accepted"):
         await update.message.reply_text(
@@ -498,6 +547,15 @@ async def handle_email_for_subscription(update: Update, context: ContextTypes.DE
     return True
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    telegram_id = update.effective_user.id
+    today = date.today()
+
+    if today < LAUNCH_DATE and telegram_id not in EXISTING_USER_IDS:
+        user = get_user(telegram_id)
+        if user and user.get("waitlist"):
+            await update.message.reply_text(WAITLIST_BLOCK_MSG, parse_mode="MarkdownV2")
+            return
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "there"
     user_message = update.message.text or ""

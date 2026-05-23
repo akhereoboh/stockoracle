@@ -244,3 +244,62 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             summary += f" and {len(failed_ids) - 10} more"
 
     await update.message.reply_text(summary)
+
+
+async def launch_waitlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    result = supabase.table("users")\
+        .select("*")\
+        .eq("waitlist", True)\
+        .eq("waitlist_notified", False)\
+        .execute()
+
+    users = result.data or []
+    if not users:
+        await update.message.reply_text("No waitlist users to notify.")
+        return
+
+    await update.message.reply_text(f"🚀 Notifying {len(users)} waitlist users...")
+
+    sent = 0
+    failed = 0
+
+    launch_msg = (
+        "🎉 *StockOracle is LIVE\\!*\n\n"
+        "Your early access is ready\\. As a founding member your discount is locked in:\n\n"
+        "Pro: ~₦9,999/month~ ➡️ *₦6,999/month*\n"
+        "Basic: ~₦5,999/month~ ➡️ *₦3,999/month*\n\n"
+        "This price is yours forever as long as you stay subscribed\\.\n\n"
+        "Type /start to accept terms and get full access now\\!\n\n"
+        "Welcome to the future of Nigerian stock investing 🚀"
+    )
+
+    async with httpx.AsyncClient() as client:
+        for user in users:
+            try:
+                await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                    json={
+                        "chat_id": user["telegram_id"],
+                        "text": launch_msg,
+                        "parse_mode": "MarkdownV2"
+                    },
+                    timeout=10
+                )
+                supabase.table("users").update({
+                    "waitlist": False,
+                    "waitlist_notified": True
+                }).eq("telegram_id", user["telegram_id"]).execute()
+                sent += 1
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                failed += 1
+                logger.error(f"Launch notify failed for {user['telegram_id']}: {e}")
+
+    await update.message.reply_text(
+        f"✅ Launch complete\\!\n\nNotified: {sent}\nFailed: {failed}",
+        parse_mode="MarkdownV2"
+    )

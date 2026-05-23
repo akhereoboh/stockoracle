@@ -12,6 +12,13 @@ import uvicorn
 from app.webhook import webhook_app
 from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast
 
+from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist
+from app.bot import (start, help_command, signals, explain, performance,
+                     subscribe, subscribe_callback, terms_callback, my_status,
+                     clear, handle_message, audit, watchlist_add,
+                     watchlist_view, watchlist_remove, referral, cancel, run_bot,
+                     LAUNCH_DATE, EXISTING_USER_IDS, WAITLIST_BLOCK_MSG)
+
 logger = logging.getLogger(__name__)
 
 async def main():
@@ -41,6 +48,21 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.PHOTO, handle_message))
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
+
+    application.add_handler(CommandHandler("broadcast", admin_broadcast))
+    application.add_handler(CommandHandler("launchwaitlist", launch_waitlist))
+
+    # catch-all for waitlist users trying any command
+    async def waitlist_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        telegram_id = update.effective_user.id
+        today = date.today()
+        if today < LAUNCH_DATE and telegram_id not in EXISTING_USER_IDS:
+            user = get_user(telegram_id)
+            if user and user.get("waitlist"):
+                await update.message.reply_text(WAITLIST_BLOCK_MSG, parse_mode="MarkdownV2")
+
+    from app.bot import get_user
+    application.add_handler(MessageHandler(filters.COMMAND, waitlist_catch))
     
     def run_webhook():
         uvicorn.run(webhook_app, host="0.0.0.0", port=8001, log_level="warning")
