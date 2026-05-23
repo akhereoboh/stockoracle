@@ -19,7 +19,7 @@ WAITLIST_MSG = (
     "You're on our *Early Access Waitlist* 🎉\n\n"
     "StockOracle is Nigeria's most powerful AI stock market assistant\\. "
     "We scan 450\\+ NGX stocks daily and deliver the best trading opportunities directly to you\\.\n\n"
-    "🗓 *Launch Date: Monday, 27th May 2026*\n\n"
+    "🗓 *Launch Date: Wednesday, 27th May 2026*\n\n"
     "As a founding member, you're locked in at our special launch price:\n\n"
     "Premium: ~₦25,000/month~ ➡️ *₦9,999/month*\n"
     "Pro: ~₦10,000/month~ ➡️ *₦5,999/month*\n\n"
@@ -30,7 +30,7 @@ WAITLIST_MSG = (
 )
 
 WAITLIST_BLOCK_MSG = (
-    "⏳ *StockOracle launches Monday 27th May 2026*\n\n"
+    "⏳ *StockOracle launches Wednesday 27th May 2026*\n\n"
     "You're on the waitlist and will be notified the moment we go live "
     "with your founding member discount\\."
 )
