@@ -64,6 +64,9 @@ def is_tradeable_equity(ticker: str, company: str = "") -> bool:
             'FFFBN', 'FFUNC', 'FFLEGY', 'FFFSDHC',
             'FFIONE', 'FFFRONT', 'CNIF', 'AVAIF',
             'MERVAL', 'MERG', 'NIDF',
+            'VETGOODS', 'VETBANK', 'SIAMLETF',
+            'STANBICETF', 'GREENWETF', 'NGXPENBRD',
+            'MERCER', 'MERISTEM VALUE', 'MERISTEM GROWTH',
         ]
         for phrase in non_equity_phrases:
             if phrase in company_upper:
@@ -213,7 +216,7 @@ def score_stock(stock: dict, history: list) -> float:
         return 0.0
 
     # minimum price — exclude under ₦1
-    if price < 1:
+    if price < 1.50:
         return 0.0
 
     # minimum liquidity — 50k shares
