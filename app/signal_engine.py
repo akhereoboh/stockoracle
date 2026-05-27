@@ -255,6 +255,8 @@ def score_stock(stock: dict, history: list) -> float:
 
     # volume confirmation
     avg_volume = get_average_volume(history)
+    if avg_volume < 500000 and today_volume < 500000:
+        return 0.0
     if avg_volume > 0 and today_volume > 0:
         volume_ratio = today_volume / avg_volume
         if volume_ratio >= 3:
