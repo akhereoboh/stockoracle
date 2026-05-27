@@ -228,6 +228,11 @@ def score_stock(stock: dict, history: list) -> float:
     if trend == "downtrend":
         return 0.0
 
+    # hard liquidity gate — check BEFORE scoring
+    avg_volume = get_average_volume(history)
+    if avg_volume > 0 and avg_volume < 50000 and today_volume < 50000:
+        return 0.0
+
     # signal score
     if "BUY" in signal:
         score += 40
@@ -254,9 +259,6 @@ def score_stock(stock: dict, history: list) -> float:
     score += (consistency / 100) * 15
 
     # volume confirmation
-    avg_volume = get_average_volume(history)
-    if avg_volume < 500000 and today_volume < 500000:
-        return 0.0
     if avg_volume > 0 and today_volume > 0:
         volume_ratio = today_volume / avg_volume
         if volume_ratio >= 3:
