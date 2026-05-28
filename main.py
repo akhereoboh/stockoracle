@@ -22,7 +22,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from datetime import date
 from app.bot import copy_trading
-from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist, referral_report
+# from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist,
 from app.admin import (analytics, admin_upgrade, admin_downgrade, admin_users, 
                         admin_broadcast, launch_waitlist, mark_referral_paid)
 
@@ -60,7 +60,7 @@ async def main():
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
     application.add_handler(CommandHandler("launchwaitlist", launch_waitlist))
     application.add_handler(CommandHandler("copytrading", copy_trading))
-    application.add_handler(CommandHandler("referralreport", referral_report))
+    # application.add_handler(CommandHandler("referralreport", referral_report))
     application.add_handler(CommandHandler("markpaid", mark_referral_paid))
 
 
