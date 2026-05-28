@@ -16,3 +16,6 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://sireai.uk")
 FLUTTERWAVE_SECRET_KEY = os.getenv("FLUTTERWAVE_SECRET_KEY")
 FLUTTERWAVE_SECRET_HASH = os.getenv("FLUTTERWAVE_SECRET_HASH")
 KORAPAY_SECRET_KEY = os.getenv("KORAPAY_SECRET_KEY")
+
+BAMBOO_API_KEY = os.getenv("BAMBOO_API_KEY")
+BAMBOO_BASE_URL = os.getenv("BAMBOO_BASE_URL", "https://powered-by-bamboo-sandbox.investbamboo.com")

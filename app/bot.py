@@ -596,6 +596,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(response)
     
 
+async def copy_trading(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_terms(update):
+        return
+
+    telegram_id = update.effective_user.id
+    user = get_user(telegram_id)
+
+    if not is_pro(user):
+        await update.message.reply_text(
+            "Copy trading is a Pro feature.\n\n"
+            "Upgrade to Pro to have StockOracle automatically execute "
+            "signals in your Bamboo account.\n\n"
+            "Use /subscribe to upgrade."
+        )
+        return
+
+    await update.message.reply_text(
+        "Copy Trading — Powered by Bamboo\n\n"
+        "When enabled, StockOracle automatically places trades in your "
+        "Bamboo brokerage account every time a signal fires.\n\n"
+        "To get started:\n"
+        "1. Tell me how much you want to invest per signal (e.g. ₦10,000)\n"
+        "2. We'll set up your Bamboo account\n"
+        "3. Fund it and StockOracle handles the rest\n\n"
+        "Reply with the amount per trade to continue, or /cancel to stop.\n\n"
+        "Note: Copy trading is currently in beta. "
+        "You will be notified when it goes live."
+    )
+
+
 async def watchlist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
         return
