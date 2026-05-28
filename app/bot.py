@@ -613,9 +613,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "message_type": "image" if image_data else "text",
             "created_at": datetime.now(UTC).isoformat()
         }).execute()
+        
+        # use rpc increment to avoid race conditions
+        fresh_user = get_user(telegram_id)
+        supabase.table("users").update({
+            "message_count": (fresh_user.get("message_count") or 0) + 1
+        }).eq("telegram_id", telegram_id).execute()
     except Exception as e:
         logger.error(f"Conversation log error: {e}")
-    
+        
 
 async def copy_trading(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):

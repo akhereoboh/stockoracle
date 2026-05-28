@@ -60,11 +60,18 @@ async def analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Monthly revenue: ₦{monthly_revenue:,}\n\n"
         f"Total signals generated: {len(signals.data or [])}\n"
         f"News alerts stored: {len(news.data or [])}\n\n"
+        f"Total messages sent: {msg_count}\n"
         f"Commands:\n"
         f"/adminupgrade [telegram_id] [basic/pro]\n"
         f"/admindowngrade [telegram_id]\n"
         f"/adminusers — list recent users"
     )
+
+    total_messages = supabase.table("users")\
+    .select("message_count")\
+    .execute()
+    msg_count = sum(u.get("message_count") or 0 for u in (total_messages.data or []))
+
 
 async def referral_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -160,7 +167,7 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"Recent users ({len(users)}):\n\n"
     for u in users:
         expires = u.get("expires_at", "")[:10] if u.get("expires_at") else "—"
-        msg += f"{u['name']} | {u['tier']} | expires: {expires} | ID: {u['telegram_id']}\n"
+        msg += f"{u['name']} | {u['tier']} | msgs: {u.get('message_count', 0)} | expires: {expires} | ID: {u['telegram_id']}\n"
 
     await update.message.reply_text(msg)
 
