@@ -181,28 +181,53 @@ def reward_referrer(referred_id: int):
             .eq("referred_id", referred_id)\
             .eq("converted", False)\
             .execute()
-        
+
         if not referral.data:
-            return
-        
+            return None
+
         referrer_id = referral.data[0]["referrer_id"]
-        
-        # add 7 bonus days to referrer
-        referrer = get_user(referrer_id)
-        if referrer and referrer.get("expires_at"):
-            from datetime import timedelta
-            exp = datetime.fromisoformat(referrer["expires_at"].replace("Z", "+00:00"))
-            new_exp = exp + timedelta(days=7)
-            supabase.table("users").update({
-                "expires_at": new_exp.isoformat()
-            }).eq("telegram_id", referrer_id).execute()
-        
+        referral_id = referral.data[0]["id"]
+
+        # mark referral as converted with timestamp
         supabase.table("referrals").update({
-            "converted": True
-        }).eq("referred_id", referred_id).execute()
-        
-        logger.info(f"Referrer {referrer_id} rewarded 7 days for referring {referred_id}")
+            "converted": True,
+            "reward_amount": 1000,
+            "converted_at": datetime.now(UTC).isoformat()
+        }).eq("id", referral_id).execute()
+
+        # get referrer info
+        referrer = get_user(referrer_id)
+        referrer_name = referrer.get("name", "Unknown") if referrer else "Unknown"
+        referrer_email = referrer.get("email", "") if referrer else ""
+
+        # update or create reward record
+        existing = supabase.table("referral_rewards")\
+            .select("*")\
+            .eq("telegram_id", referrer_id)\
+            .execute()
+
+        if existing.data:
+            current = existing.data[0]
+            supabase.table("referral_rewards").update({
+                "total_referrals": current["total_referrals"] + 1,
+                "total_earned": current["total_earned"] + 1000,
+                "total_unpaid": current["total_unpaid"] + 1000,
+                "updated_at": datetime.now(UTC).isoformat()
+            }).eq("telegram_id", referrer_id).execute()
+        else:
+            supabase.table("referral_rewards").insert({
+                "telegram_id": referrer_id,
+                "name": referrer_name,
+                "email": referrer_email,
+                "total_referrals": 1,
+                "total_earned": 1000,
+                "total_paid": 0,
+                "total_unpaid": 1000
+            }).execute()
+
+        logger.info(f"Referrer {referrer_id} earned ₦1,000 for referring {referred_id}")
         return referrer_id
+
     except Exception as e:
         logger.error(f"Reward referrer error: {e}")
         return None

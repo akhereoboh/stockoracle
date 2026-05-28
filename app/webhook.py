@@ -56,8 +56,11 @@ async def paystack_webhook(request: Request):
             if referrer_id:
                 await send_telegram_message(
                     referrer_id,
-                    "🎁 Referral bonus! Someone you referred just subscribed.\n"
-                    "7 free days have been added to your subscription automatically."
+                    "🎉 Referral bonus!\n\n"
+                    "Someone you referred just subscribed to StockOracle.\n\n"
+                    "You've earned ₦1,000 cash reward.\n\n"
+                    "We'll reach out to pay you. Keep referring — "
+                    "every subscriber you bring in earns you ₦1,000."
                 )
             logger.info(f"User {tid} upgraded to {tier}")
 

@@ -6,6 +6,7 @@ from app.database import supabase
 from app.payments import register_user, get_user, create_subscription_link, upgrade_user
 from app.ai import get_ai_response
 from datetime import datetime, UTC, date
+from app.admin import is_admin
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -708,22 +709,68 @@ async def watchlist_view(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
         return
-    
+
     telegram_id = update.effective_user.id
     from app.payments import get_or_create_referral_code
-    
+
     code = get_or_create_referral_code(telegram_id)
     bot_username = (await context.bot.get_me()).username
-    
+
+    # get their reward stats
+    rewards = supabase.table("referral_rewards")\
+        .select("*")\
+        .eq("telegram_id", telegram_id)\
+        .execute()
+
+    stats = ""
+    if rewards.data:
+        r = rewards.data[0]
+        stats = (
+            f"\nYour referral stats:\n"
+            f"Total referrals: {r['total_referrals']}\n"
+            f"Total earned: ₦{r['total_earned']:,.0f}\n"
+            f"Paid out: ₦{r['total_paid']:,.0f}\n"
+            f"Pending payment: ₦{r['total_unpaid']:,.0f}\n"
+        )
+
     await update.message.reply_text(
-        f"Your referral code: {code}\n\n"
-        f"Share this link with friends:\n"
+        f"Your referral link:\n"
         f"https://t.me/{bot_username}?start={code}\n\n"
-        "When a friend joins using your link and subscribes, "
-        "you automatically get 7 free days added to your subscription.\n\n"
-        "There's no limit — refer 4 friends and get a free month!"
+        f"Every person who joins using your link and subscribes "
+        f"earns you ₦1,000 cash. No limit.\n\n"
+        f"Refer 10 people = ₦10,000\n"
+        f"Refer 50 people = ₦50,000\n\n"
+        f"We pay out at the end of each month via bank transfer."
+        + (f"\n{stats}" if stats else "")
     )
 
+
+async def referral_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    result = supabase.table("referral_rewards")\
+        .select("*")\
+        .gt("total_unpaid", 0)\
+        .order("total_unpaid", desc=True)\
+        .execute()
+
+    if not result.data:
+        await update.message.reply_text("No pending referral payments.")
+        return
+
+    total_owed = sum(r["total_unpaid"] for r in result.data)
+    msg = f"Referral Payments Owed — Total: ₦{total_owed:,.0f}\n\n"
+
+    for r in result.data:
+        msg += (
+            f"{r['name']} | @{r.get('telegram_id')} | "
+            f"Referrals: {r['total_referrals']} | "
+            f"Owed: ₦{r['total_unpaid']:,.0f}\n"
+        )
+
+    await update.message.reply_text(msg)
 
 async def watchlist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
