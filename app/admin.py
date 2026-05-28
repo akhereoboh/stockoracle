@@ -190,6 +190,53 @@ async def mark_referral_paid(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(f"Error: {e}")
         
 
+async def view_conversations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    args = context.args
+    limit = 10
+    telegram_id = None
+
+    if args:
+        try:
+            telegram_id = int(args[0])
+        except:
+            pass
+
+    query = supabase.table("conversations")\
+        .select("*")\
+        .order("created_at", desc=True)\
+        .limit(limit)
+
+    if telegram_id:
+        query = query.eq("telegram_id", telegram_id)
+
+    result = query.execute()
+    data = result.data or []
+
+    if not data:
+        await update.message.reply_text("No conversations found.")
+        return
+
+    msg = f"Last {len(data)} conversations:\n\n"
+    for r in data:
+        msg += (
+            f"{r['user_name']} ({r['user_tier']}) — {r['created_at'][:16]}\n"
+            f"User: {r['user_message'][:80]}\n"
+            f"Bot: {r['bot_response'][:80]}\n\n"
+        )
+
+    # split if too long
+    if len(msg) > 4000:
+        msg = msg[:4000] + "...\n\nUse /conversations [telegram_id] for specific user"
+
+    await update.message.reply_text(msg)
+
+
+
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Access denied.")

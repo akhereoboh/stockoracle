@@ -153,6 +153,28 @@ tools = [
         "required": ["telegram_id", "tier"]
     }
 },
+{
+    "name": "search_conversations",
+    "description": "Search user conversations to understand what users are asking and how the bot is responding. Admin only.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "telegram_id": {
+                "type": "integer",
+                "description": "Filter by specific user telegram ID (optional)"
+            },
+            "keyword": {
+                "type": "string",
+                "description": "Search keyword in user messages (optional)"
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Number of conversations to return, default 10"
+            }
+        },
+        "required": []
+    }
+},
 ]
 
 # ---- TOOL EXECUTION ----
@@ -365,6 +387,46 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
                 f"Active Pro: {active_pro}\n"
                 f"Est. monthly revenue: ₦{revenue:,}"
             )
+        
+        elif tool_name == "search_conversations":
+            if user_tier != "admin":
+                return "Access denied."
+            
+            limit = tool_input.get("limit", 10)
+            tid = tool_input.get("telegram_id")
+            keyword = tool_input.get("keyword")
+            
+            query = supabase.table("conversations")\
+                .select("telegram_id, user_name, user_message, bot_response, user_tier, created_at")\
+                .order("created_at", desc=True)\
+                .limit(limit)
+            
+            if tid:
+                query = query.eq("telegram_id", tid)
+            
+            result = query.execute()
+            
+            if not result.data:
+                return "No conversations found."
+            
+            # filter by keyword if provided
+            data = result.data
+            if keyword:
+                data = [r for r in data if keyword.lower() in r.get("user_message", "").lower()]
+            
+            if not data:
+                return f"No conversations found containing '{keyword}'"
+            
+            lines = []
+            for r in data:
+                lines.append(
+                    f"[{r['created_at'][:16]}] {r['user_name']} ({r['user_tier']})\n"
+                    f"User: {r['user_message'][:100]}\n"
+                    f"Bot: {r['bot_response'][:100]}\n"
+                )
+            
+            return "\n---\n".join(lines)
+
 
         elif tool_name == "upgrade_user_tier":
             if user_tier != "admin":

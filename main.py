@@ -25,6 +25,9 @@ from app.bot import copy_trading
 # from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist,
 from app.admin import (analytics, admin_upgrade, admin_downgrade, admin_users, 
                         admin_broadcast, launch_waitlist, mark_referral_paid)
+from app.admin import (analytics, admin_upgrade, admin_downgrade, admin_users,
+                        admin_broadcast, launch_waitlist, referral_report, 
+                        mark_referral_paid, view_conversations)
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +65,7 @@ async def main():
     application.add_handler(CommandHandler("copytrading", copy_trading))
     # application.add_handler(CommandHandler("referralreport", referral_report))
     application.add_handler(CommandHandler("markpaid", mark_referral_paid))
+    application.add_handler(CommandHandler("conversations", view_conversations))
 
 
     # catch-all for waitlist users trying any command

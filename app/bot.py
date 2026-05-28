@@ -548,20 +548,19 @@ async def handle_email_for_subscription(update: Update, context: ContextTypes.DE
     return True
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     telegram_id = update.effective_user.id
-    today = date.today()
+    user_name = update.effective_user.first_name or "there"
+    user_message = update.message.text or ""
+    image_data = None
+    image_mime = None
 
+    # waitlist check
+    today = date.today()
     if today < LAUNCH_DATE and telegram_id not in EXISTING_USER_IDS:
         user = get_user(telegram_id)
         if user and user.get("waitlist"):
             await update.message.reply_text(WAITLIST_BLOCK_MSG, parse_mode="MarkdownV2")
             return
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name or "there"
-    user_message = update.message.text or ""
-    image_data = None
-    image_mime = None
 
     if not await check_terms(update):
         return
@@ -576,10 +575,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(photo.file_id)
         image_data = await file.download_as_bytearray()
         image_mime = "image/jpeg"
-        user_message = update.message.caption or ""
+        user_message = update.message.caption or "[image sent]"
 
-    user = get_user(user_id)
-    if user_id in EXISTING_USER_IDS and user_id == 1696237112:
+    user = get_user(telegram_id)
+    if telegram_id in EXISTING_USER_IDS and telegram_id == 1696237112:
         user_tier = "admin"
     elif is_pro(user):
         user_tier = "pro"
@@ -588,20 +587,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         user_tier = "free"
 
-    if user_id not in user_histories:
-        user_histories[user_id] = []
+    if telegram_id not in user_histories:
+        user_histories[telegram_id] = []
 
     thinking_msg = await update.message.reply_text("🤔 Analysing...")
 
     response, updated_history = get_ai_response(
-        user_message, user_name, image_data, image_mime, 
-        user_histories[user_id], user_tier
+        user_message, user_name, image_data, image_mime,
+        user_histories[telegram_id], user_tier
     )
 
-    user_histories[user_id] = updated_history[-20:]
+    user_histories[telegram_id] = updated_history[-20:]
 
     await thinking_msg.delete()
     await update.message.reply_text(response)
+
+    # log conversation to database
+    try:
+        supabase.table("conversations").insert({
+            "telegram_id": telegram_id,
+            "user_name": user_name,
+            "user_message": user_message[:2000],
+            "bot_response": response[:2000],
+            "user_tier": user_tier,
+            "message_type": "image" if image_data else "text",
+            "created_at": datetime.now(UTC).isoformat()
+        }).execute()
+    except Exception as e:
+        logger.error(f"Conversation log error: {e}")
     
 
 async def copy_trading(update: Update, context: ContextTypes.DEFAULT_TYPE):
