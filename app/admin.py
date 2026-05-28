@@ -66,6 +66,34 @@ async def analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"/adminusers — list recent users"
     )
 
+async def referral_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    result = supabase.table("referral_rewards")\
+        .select("*")\
+        .gt("total_unpaid", 0)\
+        .order("total_unpaid", desc=True)\
+        .execute()
+
+    if not result.data:
+        await update.message.reply_text("No pending referral payments.")
+        return
+
+    total_owed = sum(r["total_unpaid"] for r in result.data)
+    msg = f"Referral Payments Owed — Total: ₦{total_owed:,.0f}\n\n"
+
+    for r in result.data:
+        msg += (
+            f"{r['name']} | ID: {r['telegram_id']} | "
+            f"Referrals: {r['total_referrals']} | "
+            f"Owed: ₦{r['total_unpaid']:,.0f}\n"
+        )
+
+    await update.message.reply_text(msg)
+
+
 async def admin_upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return

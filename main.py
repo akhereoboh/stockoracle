@@ -63,7 +63,7 @@ async def main():
     application.add_handler(CommandHandler("broadcast", admin_broadcast))
     application.add_handler(CommandHandler("launchwaitlist", launch_waitlist))
     application.add_handler(CommandHandler("copytrading", copy_trading))
-    # application.add_handler(CommandHandler("referralreport", referral_report))
+    application.add_handler(CommandHandler("referralreport", referral_report))
     application.add_handler(CommandHandler("markpaid", mark_referral_paid))
     application.add_handler(CommandHandler("conversations", view_conversations))
 
