@@ -23,7 +23,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from datetime import date
 from app.bot import copy_trading
 from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist, referral_report
-
+from app.admin import (analytics, admin_upgrade, admin_downgrade, admin_users, 
+                        admin_broadcast, launch_waitlist, referral_report, mark_referral_paid)
 
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ async def main():
     application.add_handler(CommandHandler("launchwaitlist", launch_waitlist))
     application.add_handler(CommandHandler("copytrading", copy_trading))
     application.add_handler(CommandHandler("referralreport", referral_report))
+    application.add_handler(CommandHandler("markpaid", mark_referral_paid))
+
 
     # catch-all for waitlist users trying any command
     async def waitlist_catch(update: Update, context: ContextTypes.DEFAULT_TYPE):

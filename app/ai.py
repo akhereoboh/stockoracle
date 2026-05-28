@@ -6,6 +6,8 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 from app.signal_engine import clean_price
+from datetime import datetime, date, UTC
+
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +102,62 @@ tools = [
             },
             "required": ["direction"]
         }
+    },
+    {
+    "name": "get_referral_report",
+    "description": "Get a report of all pending referral payments owed to users. Admin only.",
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
     }
+},
+{
+    "name": "mark_referral_paid",
+    "description": "Mark a user's referral rewards as paid after bank transfer. Admin only.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "telegram_id": {
+                "type": "integer",
+                "description": "The telegram ID of the user to mark as paid"
+            }
+        },
+        "required": ["telegram_id"]
+    }
+},
+{
+    "name": "get_analytics",
+    "description": "Get platform analytics — total users, paid subscribers, revenue estimate. Admin only.",
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+},
+{
+    "name": "upgrade_user_tier",
+    "description": "Upgrade a user's subscription tier manually. Admin only.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "telegram_id": {
+                "type": "integer",
+                "description": "The telegram ID of the user to upgrade"
+            },
+            "tier": {
+                "type": "string",
+                "description": "The tier to upgrade to: basic or pro"
+            }
+        },
+        "required": ["telegram_id", "tier"]
+    }
+},
 ]
 
 # ---- TOOL EXECUTION ----
 
-def execute_tool(tool_name: str, tool_input: dict) -> str:
+def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> str:
     try:
         if tool_name == "get_stock_price":
             ticker = tool_input["ticker"].upper()
@@ -242,6 +294,86 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
             if not headlines:
                 return f"No recent news found for {ticker}"
             return f"Recent news for {ticker}:\n" + "\n".join(f"- {h}" for h in headlines[:5])
+        
+        elif tool_name == "get_referral_report":
+            if user_tier != "admin":
+                return "Access denied."
+            result = supabase.table("referral_rewards")\
+                .select("*")\
+                .gt("total_unpaid", 0)\
+                .order("total_unpaid", desc=True)\
+                .execute()
+            if not result.data:
+                return "No pending referral payments."
+            total_owed = sum(r["total_unpaid"] for r in result.data)
+            lines = [f"Total owed: ₦{total_owed:,.0f}\n"]
+            for r in result.data:
+                lines.append(
+                    f"{r['name']} | ID: {r['telegram_id']} | "
+                    f"Referrals: {r['total_referrals']} | "
+                    f"Owed: ₦{r['total_unpaid']:,.0f}"
+                )
+            return "\n".join(lines)
+
+        elif tool_name == "mark_referral_paid":
+            if user_tier != "admin":
+                return "Access denied."
+            tid = tool_input["telegram_id"]
+            result = supabase.table("referral_rewards")\
+                .select("*")\
+                .eq("telegram_id", tid)\
+                .execute()
+            if not result.data:
+                return f"No referral record found for {tid}"
+            record = result.data[0]
+            unpaid = record["total_unpaid"]
+            if unpaid == 0:
+                return f"No pending payment for {record['name']}"
+            supabase.table("referral_rewards").update({
+                "total_paid": record["total_earned"],
+                "total_unpaid": 0
+            }).eq("telegram_id", tid).execute()
+            return f"Marked ₦{unpaid:,.0f} as paid for {record['name']} ({tid})"
+
+        elif tool_name == "get_analytics":
+            if user_tier != "admin":
+                return "Access denied."
+            users = supabase.table("users").select("*").execute()
+            all_users = users.data or []
+            total = len(all_users)
+            from datetime import timezone
+            active_basic = 0
+            active_pro = 0
+            for u in all_users:
+                expires = u.get("expires_at")
+                if expires:
+                    try:
+                        exp = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+                        if exp.tzinfo is None:
+                            exp = exp.replace(tzinfo=timezone.utc)
+                        if exp > datetime.now(UTC):
+                            if u.get("tier") == "basic":
+                                active_basic += 1
+                            elif u.get("tier") == "pro":
+                                active_pro += 1
+                    except:
+                        pass
+            revenue = (active_basic * 5999) + (active_pro * 9999)
+            return (
+                f"Total users: {total}\n"
+                f"Active Basic: {active_basic}\n"
+                f"Active Pro: {active_pro}\n"
+                f"Est. monthly revenue: ₦{revenue:,}"
+            )
+
+        elif tool_name == "upgrade_user_tier":
+            if user_tier != "admin":
+                return "Access denied."
+            tid = tool_input["telegram_id"]
+            tier = tool_input["tier"]
+            from app.payments import upgrade_user
+            upgrade_user(tid, tier)
+            return f"User {tid} upgraded to {tier}"
 
         elif tool_name == "get_top_movers":
             direction = tool_input["direction"]
@@ -288,16 +420,37 @@ def execute_tool(tool_name: str, tool_input: dict) -> str:
 
 import base64
 
-def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, image_mime: str = None, history: list = None, user_tier: str = "free") -> tuple:
+def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, 
+                    image_mime: str = None, history: list = None, user_tier: str = "free") -> tuple:
     if history is None:
         history = []
 
-    if user_tier in ["basic", "pro"]:
-        tier_instruction = f"This user is a PAID {user_tier.upper()} subscriber. Give them complete, detailed, actionable investment guidance. Answer every question fully and directly. Use your tools to fetch live prices and signals. Tell them exactly what stocks to consider, entry points, position sizing for their capital, and risk management. This is exactly what they are paying for — deliver maximum value."
+    if user_tier == "admin":
+        tier_instruction = (
+            "This is the platform admin (Alfred/Victory). Give full access to everything. "
+            "You have access to admin tools: get_referral_report, mark_referral_paid, "
+            "get_analytics, upgrade_user_tier. Use them when asked about platform stats, "
+            "referral payments, or user management. Respond concisely and directly."
+        )
+    elif user_tier in ["basic", "pro"]:
+        tier_instruction = (
+            f"This user is a PAID {user_tier.upper()} subscriber. Give them complete, "
+            "detailed, actionable investment guidance. Answer every question fully and directly. "
+            "Use your tools to fetch live prices and signals. Tell them exactly what stocks "
+            "to consider, entry points, position sizing for their capital, and risk management. "
+            "This is exactly what they are paying for — deliver maximum value."
+        )
         if user_tier == "pro":
-            tier_instruction += " They are on Pro — remind them about daily signals (Tuesday to Friday) and offer the /audit command for a full portfolio PDF when relevant."
+            tier_instruction += (
+                " They are on Pro — remind them about daily signals (Tuesday to Friday) "
+                "and offer the /audit command for a full portfolio PDF when relevant."
+            )
     else:
-        tier_instruction = "This user has not subscribed yet. Do not give them full investment guidance. Warmly and convincingly encourage them to subscribe — explain the value they would get with Pro specifically for their situation."
+        tier_instruction = (
+            "This user has not subscribed yet. Do not give them full investment guidance. "
+            "Warmly and convincingly encourage them to subscribe — explain the value they "
+            "would get with Pro specifically for their situation."
+        )
 
     system_prompt = f"""You are OracleAI, StockOracle's proprietary financial intelligence engine built by SireAI. You are not Claude, ChatGPT, or any other public AI. Never mention Claude, Anthropic, ChatGPT, OpenAI, or any AI company. If asked what AI you are or what powers you, say you are OracleAI and that the underlying technology is proprietary and not disclosed.
 

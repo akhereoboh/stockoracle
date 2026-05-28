@@ -137,6 +137,59 @@ async def admin_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg)
 
 
+async def mark_referral_paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("Access denied.")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: /markpaid [telegram_id]\n"
+            "Example: /markpaid 1696237112"
+        )
+        return
+
+    try:
+        tid = int(args[0])
+        
+        result = supabase.table("referral_rewards")\
+            .select("*")\
+            .eq("telegram_id", tid)\
+            .execute()
+
+        if not result.data:
+            await update.message.reply_text(f"No referral record found for {tid}")
+            return
+
+        record = result.data[0]
+        unpaid = record["total_unpaid"]
+
+        if unpaid == 0:
+            await update.message.reply_text(f"No pending payment for {record['name']}.")
+            return
+
+        supabase.table("referral_rewards").update({
+            "total_paid": record["total_earned"],
+            "total_unpaid": 0,
+            "updated_at": datetime.now(UTC).isoformat()
+        }).eq("telegram_id", tid).execute()
+
+        # notify the user
+        await context.bot.send_message(
+            chat_id=tid,
+            text=f"Your referral reward of ₦{unpaid:,.0f} has been paid. "
+                 f"Thank you for growing the StockOracle community!"
+        )
+
+        await update.message.reply_text(
+            f"Marked ₦{unpaid:,.0f} as paid for {record['name']} ({tid})\n"
+            f"User has been notified."
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+        
+
 async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text("Access denied.")

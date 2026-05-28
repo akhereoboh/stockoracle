@@ -579,7 +579,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_message = update.message.caption or ""
 
     user = get_user(user_id)
-    user_tier = "pro" if is_pro(user) else "basic" if is_paid(user) else "free"
+    if user_id in EXISTING_USER_IDS and user_id == 1696237112:
+        user_tier = "admin"
+    elif is_pro(user):
+        user_tier = "pro"
+    elif is_paid(user):
+        user_tier = "basic"
+    else:
+        user_tier = "free"
 
     if user_id not in user_histories:
         user_histories[user_id] = []
