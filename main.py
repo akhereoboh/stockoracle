@@ -24,7 +24,7 @@ from datetime import date
 from app.bot import copy_trading
 from app.admin import analytics, admin_upgrade, admin_downgrade, admin_users, admin_broadcast, launch_waitlist, referral_report
 from app.admin import (analytics, admin_upgrade, admin_downgrade, admin_users, 
-                        admin_broadcast, launch_waitlist, referral_report, mark_referral_paid)
+                        admin_broadcast, launch_waitlist, mark_referral_paid)
 
 
 logger = logging.getLogger(__name__)
