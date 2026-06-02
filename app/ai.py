@@ -595,7 +595,7 @@ CURRENT USER: {user_name} | Plan: {user_tier.upper()}
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = execute_tool(block.name, block.input)
+                    result = execute_tool(block.name, block.input, user_tier)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
