@@ -592,6 +592,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     thinking_msg = await update.message.reply_text("🤔 Analysing...")
 
+    try:
+        response, updated_history = get_ai_response(
+            user_message, user_name, image_data, image_mime,
+            user_histories[telegram_id], user_tier
+        )
+        user_histories[telegram_id] = updated_history[-20:]
+        await thinking_msg.delete()
+        await update.message.reply_text(response)
+    except Exception as e:
+        logger.error(f"AI response error: {e}")
+        await thinking_msg.delete()
+        await update.message.reply_text(
+            "Something went wrong on my end. Please try again in a few minutes."
+        )
+
     response, updated_history = get_ai_response(
         user_message, user_name, image_data, image_mime,
         user_histories[telegram_id], user_tier
