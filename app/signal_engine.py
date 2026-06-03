@@ -208,29 +208,33 @@ def score_stock(stock: dict, history: list) -> float:
     score = 0.0
     signal = stock.get("signal", "").upper()
     change = clean_change(stock.get("change", "0%"))
-    price = clean_price(stock.get("price", "₦0"))
+    price = clean_price(stock.get("price", "0"))
     today_volume = clean_volume(stock.get("volume", "0"))
 
     # hard exclusions
     if "SELL" in signal or "NO DATA" in signal:
         return 0.0
 
-    # minimum price — exclude under ₦1
-    if price < 1.50:
+    if price < 1:
         return 0.0
 
-    # minimum liquidity — 50k shares
-    if today_volume > 0 and today_volume < 50000:
+    # minimum 5 days history
+    if len(history) < 5:
         return 0.0
 
-    # trend filter — exclude clear downtrends only
+    # liquidity gate
+    avg_volume = get_average_volume(history)
+    if avg_volume > 0 and avg_volume < 50000 and today_volume < 50000:
+        return 0.0
+
+    # trend filter
     trend = get_price_trend(history)
     if trend == "downtrend":
         return 0.0
 
-    # hard liquidity gate — check BEFORE scoring
-    avg_volume = get_average_volume(history)
-    if avg_volume > 0 and avg_volume < 50000 and today_volume < 50000:
+    # require at least 2 consecutive up days
+    consecutive_up = count_consecutive_up_days(history)
+    if consecutive_up < 2:
         return 0.0
 
     # signal score
@@ -241,7 +245,7 @@ def score_stock(stock: dict, history: list) -> float:
     else:
         return 0.0
 
-    # today's momentum
+    # today momentum
     if 0 < change <= 9:
         score += min(change * 2, 20)
     elif change > 9:
@@ -270,12 +274,15 @@ def score_stock(stock: dict, history: list) -> float:
         elif volume_ratio >= 1:
             score += 5
 
+    # consecutive up days bonus
+    score += min(consecutive_up * 3, 15)
+
     # uptrend bonus
     if trend == "uptrend":
         score += 10
 
     # history depth bonus
-    if len(history) >= 5:
+    if len(history) >= 7:
         score += 5
 
     return score
@@ -296,9 +303,17 @@ def run_signal_engine() -> list:
         logger.warning("No stocks found for today")
         return []
 
+    # market breadth check
+    breadth = check_market_breadth(stocks)
+    logger.info(f"Market breadth: {breadth:.1%} stocks up today")
+    if breadth < 0.40:
+        logger.warning(f"Market breadth too low ({breadth:.1%}) — pausing signals today")
+        return []
+
+    # extend history to 14 days for better accuracy
     logger.info("Fetching bulk history...")
-    history_map = get_all_history_bulk(days=10)
-    
+    history_map = get_all_history_bulk(days=14)
+
     recently_signalled = get_recently_signalled_tickers(weeks=2)
     logger.info(f"Excluding {len(recently_signalled)} recently signalled tickers")
 
@@ -316,7 +331,8 @@ def run_signal_engine() -> list:
         history = history_map.get(ticker, [])
         score = score_stock(stock, history)
 
-        if score > 0:
+        # minimum 60 points — high conviction only
+        if score >= 60:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -359,6 +375,8 @@ def run_signal_engine() -> list:
 
     logger.info(f"Saved {len(signals)} signals")
     return signals
+
+
 
 def update_signal_outcomes():
     logger.info("Checking signal outcomes...")
@@ -415,3 +433,32 @@ def update_signal_outcomes():
         logger.info(f"{ticker} outcome: {outcome} | Gain: {gain}%")
 
 
+def check_market_breadth(stocks: list) -> float:
+    up = 0
+    total = 0
+    for stock in stocks:
+        change_str = stock.get("change", "").strip("'\" ")
+        try:
+            change_val = float(change_str.replace("%", "").replace("+", ""))
+            if change_val != 0:  # only count stocks that actually moved
+                total += 1
+                if change_val > 0:
+                    up += 1
+        except:
+            continue
+    if total == 0:
+        return 0.5
+    return up / total
+
+def count_consecutive_up_days(history: list) -> int:
+    if not history:
+        return 0
+    sorted_h = sorted(history, key=lambda x: x.get("trade_date", ""), reverse=True)
+    consecutive = 0
+    for h in sorted_h:
+        change = clean_change(h.get("change", "0%"))
+        if change > 0:
+            consecutive += 1
+        else:
+            break
+    return consecutive
