@@ -154,6 +154,66 @@ tools = [
     }
 },
 {
+    "name": "sector_performance",
+    "description": "Analyse which NGX sectors have performed best over a given period based on real price data",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "integer",
+                "description": "Number of days to analyse, default 30"
+            }
+        },
+        "required": []
+    }
+},
+{
+    "name": "best_trading_days",
+    "description": "Analyse which days of the week NGX stocks tend to perform best based on historical data",
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+},
+{
+    "name": "signal_accuracy_by_sector",
+    "description": "Show StockOracle signal win rate broken down by sector",
+    "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+},
+{
+    "name": "volume_leaders",
+    "description": "Find stocks showing unusual volume spikes — potential early movers",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "integer",
+                "description": "Number of days to look back, default 7"
+            }
+        },
+        "required": []
+    }
+},
+{
+    "name": "volatility_profile",
+    "description": "Profile stocks by volatility — identify stable movers vs high risk stocks",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "Specific ticker to profile, or leave empty for market overview"
+            }
+        },
+        "required": []
+    }
+},
+{
     "name": "search_conversations",
     "description": "Search user conversations to understand what users are asking and how the bot is responding. Admin only.",
     "input_schema": {
@@ -225,6 +285,267 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
                     lines.append(f"{s['ticker']} — {s['company']} | {s['price']} | {s['change']} | {s['signal']}")
                     seen.add(s['ticker'])
             return "\n".join(lines)
+        
+        elif tool_name == "sector_performance":
+            days = tool_input.get("days", 30)
+            from datetime import date, timedelta
+            since = (date.today() - timedelta(days=days)).isoformat()
+
+            result = supabase.table("stocks")\
+                .select("ticker, company, change, trade_date")\
+                .gte("trade_date", since)\
+                .execute()
+
+            stocks = result.data or []
+
+            # sector mapping
+            def get_sector(ticker, company):
+                banking = ["GTCO","ZENITHBANK","ACCESSCORP","UBA","FIDELITYBK",
+                        "FCMB","WEMABANK","STANBIC","FIRSTHOLDCO","JAIZBANK",
+                        "STERLINGNG","UNITYBNK"]
+                telecoms = ["MTNN","AIRTELAFRI"]
+                oil_gas = ["SEPLAT","OANDO","TOTAL","ETERNA","CONOIL","ARADEL","GEREGU"]
+                consumer = ["DANGSUGAR","NASCON","NESTLE","UNILEVER","CADBURY",
+                        "NB","GUINNESS","HONYFLOUR","BUAFOODS","FLOURMILL"]
+                cement = ["DANGCEM","BUACEMENT","WAPCO"]
+                insurance = ["AIICO","MANSARD","CUSTODIAN","NEM","CORNERST","SOVRENINS"]
+                tech = ["CWG","CHAMS","ETRANZACT","COURTVILLE"]
+
+                if ticker in banking: return "Banking"
+                if ticker in telecoms: return "Telecoms"
+                if ticker in oil_gas: return "Oil & Gas"
+                if ticker in consumer: return "Consumer Goods"
+                if ticker in cement: return "Cement"
+                if ticker in insurance: return "Insurance"
+                if ticker in tech: return "Technology"
+                return None
+
+            sector_data = {}
+            for stock in stocks:
+                sector = get_sector(stock["ticker"], stock.get("company",""))
+                if not sector:
+                    continue
+                change_str = stock.get("change","0%").strip("'\" ").replace("%","").replace("+","")
+                try:
+                    change_val = float(change_str)
+                    if sector not in sector_data:
+                        sector_data[sector] = []
+                    sector_data[sector].append(change_val)
+                except:
+                    continue
+
+            if not sector_data:
+                return "Not enough data for sector analysis yet."
+
+            results = []
+            for sector, changes in sector_data.items():
+                avg = sum(changes) / len(changes)
+                positive = sum(1 for c in changes if c > 0)
+                results.append((sector, avg, positive, len(changes)))
+
+            results.sort(key=lambda x: x[1], reverse=True)
+
+            lines = [f"Sector Performance — Last {days} days:\n"]
+            for sector, avg, positive, total in results:
+                up_rate = positive/total*100 if total else 0
+                lines.append(
+                    f"{sector}: avg {avg:+.2f}% | "
+                    f"{up_rate:.0f}% of days positive"
+                )
+            return "\n".join(lines)
+
+        elif tool_name == "best_trading_days":
+            from datetime import date, timedelta
+            since = (date.today() - timedelta(days=60)).isoformat()
+
+            result = supabase.table("stocks")\
+                .select("change, trade_date")\
+                .gte("trade_date", since)\
+                .execute()
+
+            from collections import defaultdict
+            import datetime as dt
+
+            day_data = defaultdict(list)
+            for stock in (result.data or []):
+                try:
+                    trade_date = dt.date.fromisoformat(stock["trade_date"])
+                    day_name = trade_date.strftime("%A")
+                    change_str = stock.get("change","0%").strip("'\" ").replace("%","").replace("+","")
+                    change_val = float(change_str)
+                    if change_val != 0:
+                        day_data[day_name].append(change_val)
+                except:
+                    continue
+
+            if not day_data:
+                return "Not enough data yet."
+
+            day_order = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+            lines = ["Best Trading Days — Last 60 days:\n"]
+            for day in day_order:
+                if day in day_data:
+                    changes = day_data[day]
+                    avg = sum(changes) / len(changes)
+                    positive = sum(1 for c in changes if c > 0)
+                    up_rate = positive/len(changes)*100
+                    lines.append(f"{day}: avg {avg:+.2f}% | {up_rate:.0f}% of stocks positive")
+
+            return "\n".join(lines)
+
+        elif tool_name == "signal_accuracy_by_sector":
+            result = supabase.table("signal_history")\
+                .select("ticker, outcome, gain_percentage")\
+                .neq("outcome", "pending")\
+                .execute()
+
+            records = result.data or []
+            if not records:
+                return "No closed signals yet."
+
+            def get_sector_simple(ticker):
+                banking = ["GTCO","ZENITHBANK","ACCESSCORP","UBA","FIDELITYBK",
+                        "FCMB","WEMABANK","STANBIC","FIRSTHOLDCO","STERLINGNG"]
+                telecoms = ["MTNN","AIRTELAFRI"]
+                oil_gas = ["SEPLAT","OANDO","TOTAL","ETERNA","CONOIL","ARADEL"]
+                consumer = ["DANGSUGAR","NASCON","NESTLE","UNILEVER","CADBURY",
+                        "NB","GUINNESS","BUAFOODS"]
+                cement = ["DANGCEM","BUACEMENT","WAPCO"]
+
+                if ticker in banking: return "Banking"
+                if ticker in telecoms: return "Telecoms"
+                if ticker in oil_gas: return "Oil & Gas"
+                if ticker in consumer: return "Consumer Goods"
+                if ticker in cement: return "Cement"
+                return "Other"
+
+            from collections import defaultdict
+            sector_results = defaultdict(lambda: {"wins":0,"losses":0,"gains":[]})
+
+            for r in records:
+                sector = get_sector_simple(r["ticker"])
+                if r["outcome"] == "tp1_hit":
+                    sector_results[sector]["wins"] += 1
+                else:
+                    sector_results[sector]["losses"] += 1
+                if r.get("gain_percentage"):
+                    sector_results[sector]["gains"].append(r["gain_percentage"])
+
+            lines = ["Signal Accuracy by Sector:\n"]
+            for sector, data in sorted(sector_results.items()):
+                total = data["wins"] + data["losses"]
+                win_rate = data["wins"]/total*100 if total else 0
+                avg_gain = sum(data["gains"])/len(data["gains"]) if data["gains"] else 0
+                lines.append(
+                    f"{sector}: {win_rate:.0f}% win rate | "
+                    f"avg {avg_gain:+.2f}% | "
+                    f"{total} signals"
+                )
+            return "\n".join(lines)
+
+        elif tool_name == "volume_leaders":
+            days = tool_input.get("days", 7)
+            from datetime import date, timedelta
+            since = (date.today() - timedelta(days=days)).isoformat()
+
+            result = supabase.table("stocks")\
+                .select("ticker, company, volume, trade_date")\
+                .gte("trade_date", since)\
+                .execute()
+
+            from collections import defaultdict
+            from app.signal_engine import clean_volume
+
+            ticker_volumes = defaultdict(list)
+            for stock in (result.data or []):
+                vol = clean_volume(stock.get("volume","0"))
+                if vol > 0:
+                    ticker_volumes[stock["ticker"]].append(vol)
+
+            # find stocks where recent volume is much higher than their own average
+            spikes = []
+            for ticker, volumes in ticker_volumes.items():
+                if len(volumes) < 2:
+                    continue
+                latest = volumes[-1]
+                avg = sum(volumes[:-1]) / len(volumes[:-1])
+                if avg > 0:
+                    ratio = latest / avg
+                    if ratio >= 2:
+                        spikes.append((ticker, ratio, latest, avg))
+
+            spikes.sort(key=lambda x: x[1], reverse=True)
+
+            if not spikes:
+                return "No significant volume spikes detected in the last {days} days."
+
+            lines = [f"Volume Spikes — Last {days} days:\n"]
+            for ticker, ratio, latest, avg in spikes[:10]:
+                lines.append(
+                    f"{ticker}: {ratio:.1f}x average volume "
+                    f"({latest:,.0f} vs avg {avg:,.0f})"
+                )
+            return "\n".join(lines)
+
+        elif tool_name == "volatility_profile":
+            ticker = tool_input.get("ticker")
+            from datetime import date, timedelta
+            from app.signal_engine import clean_change
+            since = (date.today() - timedelta(days=30)).isoformat()
+
+            if ticker:
+                result = supabase.table("stocks")\
+                    .select("ticker, change, trade_date")\
+                    .eq("ticker", ticker.upper())\
+                    .gte("trade_date", since)\
+                    .execute()
+            else:
+                result = supabase.table("stocks")\
+                    .select("ticker, change, trade_date")\
+                    .gte("trade_date", since)\
+                    .execute()
+
+            from collections import defaultdict
+            ticker_changes = defaultdict(list)
+            for stock in (result.data or []):
+                change = clean_change(stock.get("change","0%"))
+                if change != 0:
+                    ticker_changes[stock["ticker"]].append(abs(change))
+
+            if not ticker_changes:
+                return "Not enough data."
+
+            if ticker:
+                changes = ticker_changes.get(ticker.upper(), [])
+                if not changes:
+                    return f"No data for {ticker}"
+                avg_move = sum(changes) / len(changes)
+                max_move = max(changes)
+                volatility = "High" if avg_move > 3 else "Medium" if avg_move > 1.5 else "Low"
+                return (
+                    f"{ticker} Volatility Profile — Last 30 days:\n\n"
+                    f"Average daily move: {avg_move:.2f}%\n"
+                    f"Largest single day move: {max_move:.2f}%\n"
+                    f"Volatility rating: {volatility}\n\n"
+                    f"{'High volatility — use smaller position sizes and tighter stops.' if volatility == 'High' else 'Moderate volatility — standard position sizing applies.' if volatility == 'Medium' else 'Low volatility — stable mover, suitable for larger positions.'}"
+                )
+            else:
+                # market overview
+                profiles = []
+                for t, changes in ticker_changes.items():
+                    avg = sum(changes) / len(changes)
+                    profiles.append((t, avg))
+
+                profiles.sort(key=lambda x: x[1], reverse=True)
+
+                lines = ["NGX Volatility Overview — Last 30 days:\n"]
+                lines.append("Most volatile (use caution):")
+                for t, avg in profiles[:5]:
+                    lines.append(f"  {t}: avg {avg:.2f}% daily move")
+                lines.append("\nMost stable (reliable movers):")
+                for t, avg in sorted(profiles, key=lambda x: x[1])[:5]:
+                    lines.append(f"  {t}: avg {avg:.2f}% daily move")
+                return "\n".join(lines)
         
         elif tool_name == "portfolio_audit":
             
