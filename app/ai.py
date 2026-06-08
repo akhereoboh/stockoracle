@@ -201,7 +201,7 @@ tools = [
 },
 {
     "name": "stock_performance",
-    "description": "Get detailed price performance for a specific NGX stock over a given period",
+    "description": "ALWAYS use this tool when a user asks how a stock has performed, its price history, returns, or movement over any time period. Use for questions like 'how has MTNN performed', 'what has GTCO done this month', 'is DANGCEM up or down lately'. Fetches real price data from the database.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -940,6 +940,17 @@ Commands users can use:
 /performance — signal track record
 /referral — get referral link (earn 7 free days per converting referral)
 /clear — reset conversation
+
+TOOL USAGE — CRITICAL:
+Always use tools to answer questions about stocks. Never answer from general knowledge when a tool can give real data.
+- User asks about a specific stock price or performance → use get_stock_price or stock_performance
+- User asks how a stock has done recently → use stock_performance
+- User asks about signals → use get_weekly_signals
+- User asks about top movers → use get_top_movers
+- User asks about volume or volatility → use volatility_profile or volume_leaders
+- User asks about sector performance → use sector_performance
+- User asks what day is best to buy → use best_trading_days
+If you're about to answer a market question from memory, STOP and use a tool instead.
 
 SUBSCRIPTION PLANS:
 Basic ₦5,999/month — all 5 weekly signals every Monday, take profit and stop loss alerts, unlimited stock lookups, full AI analysis, watchlist, news alerts
