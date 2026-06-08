@@ -222,7 +222,7 @@ def score_stock(stock: dict, history: list) -> float:
     if price < 1:
         return 0.0
 
- # minimum 3 days history
+    # minimum 3 days history
     if len(history) < 3:
         return 0.0
 
@@ -291,6 +291,35 @@ def score_stock(stock: dict, history: list) -> float:
     # history depth bonus
     if len(history) >= 7:
         score += 5
+
+
+    # technical analysis bonus — add RSI and MACD to scoring
+    if len(history) >= 14:
+        prices_list = [clean_price(h["price"]) for h in history if clean_price(h["price"]) > 0]
+        volumes_list = [clean_volume(h.get("volume","0")) for h in history]
+        
+        if len(prices_list) >= 14:
+            from app.technical import calculate_rsi, calculate_macd
+            
+            rsi = calculate_rsi(prices_list)
+            macd = calculate_macd(prices_list)
+            
+            # RSI scoring
+            if rsi is not None:
+                if 45 <= rsi <= 65:
+                    score += 15  # healthy momentum zone
+                elif rsi < 35:
+                    score += 10  # oversold bounce potential
+                elif rsi > 70:
+                    score -= 15  # overbought — risky entry
+            
+            # MACD scoring
+            if macd["crossover"] == "bullish":
+                score += 20  # fresh crossover — strong signal
+            elif macd["macd"] is not None and macd["macd"] > macd["signal"]:
+                score += 10  # above signal line
+            elif macd["crossover"] == "bearish":
+                score -= 20  # fresh bearish crossover — reject
 
     return score
 

@@ -232,6 +232,20 @@ tools = [
     }
 },
 {
+    "name": "technical_analysis",
+    "description": "Run full technical analysis on any NGX stock including RSI, MACD, Bollinger Bands, support/resistance levels, and volume trend. Use when user asks if they should buy/sell/hold a stock, or wants technical analysis.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "The stock ticker e.g MTNN, GTCO, DANGCEM"
+            }
+        },
+        "required": ["ticker"]
+    }
+},
+{
     "name": "search_conversations",
     "description": "Search user conversations to understand what users are asking and how the bot is responding. Admin only.",
     "input_schema": {
@@ -285,6 +299,35 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
             for i, s in enumerate(result.data, 1):
                 lines.append(f"{i}. {s['ticker']} — Entry: ₦{s['entry_price']}, TP1: ₦{s['tp1']}, TP2: ₦{s['tp2']}, Stop Loss: ₦{s['stop_loss']}")
             return "\n".join(lines)
+        
+        elif tool_name == "technical_analysis":
+            ticker = tool_input.get("ticker", "").upper()
+            from datetime import date, timedelta
+            from app.signal_engine import clean_price, clean_volume
+            from app.technical import full_technical_analysis, interpret_analysis
+
+            since = (date.today() - timedelta(days=60)).isoformat()
+
+            result = supabase.table("stocks")\
+                .select("price, volume, trade_date")\
+                .eq("ticker", ticker)\
+                .gte("trade_date", since)\
+                .order("trade_date", desc=False)\
+                .execute()
+
+            records = result.data or []
+            if not records:
+                return f"No data found for {ticker}."
+
+            prices = [clean_price(r["price"]) for r in records if clean_price(r["price"]) > 0]
+            volumes = [clean_volume(r.get("volume", "0")) for r in records]
+            
+            if len(prices) < 5:
+                return f"Not enough price history for {ticker} technical analysis."
+
+            current_price = prices[-1]
+            analysis = full_technical_analysis(prices, volumes)
+            return interpret_analysis(analysis, ticker, current_price)
         
         elif tool_name == "stock_performance":
             ticker = tool_input.get("ticker", "").upper()
@@ -934,6 +977,9 @@ Commands users can use:
 /clear — reset conversation
 
 TOOL USAGE — CRITICAL:
+- User asks should I buy/sell/hold a specific stock → use technical_analysis tool
+- User asks for technical analysis → use technical_analysis tool
+- User asks about RSI, MACD, support, resistance → use technical_analysis tool
 Always use tools to answer questions about stocks. Never answer from general knowledge when a tool can give real data.
 - User asks about a specific stock price or performance → use get_stock_price or stock_performance
 - User asks how a stock has done recently → use stock_performance

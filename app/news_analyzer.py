@@ -1,10 +1,10 @@
 import logging
+import httpx
 import anthropic
-from app.config import ANTHROPIC_API_KEY
+from app.config import ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
 from app.database import supabase
-from app.scrapers.news import get_all_news
+from app.scrapers.filings import get_all_filings
 from datetime import datetime, UTC
-
 logger = logging.getLogger(__name__)
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
