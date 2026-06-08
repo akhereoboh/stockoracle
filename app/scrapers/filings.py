@@ -5,8 +5,9 @@ from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
+
+
 async def get_ngx_filings() -> list:
-    """Scrape NGX company filings from abokiforex disclosures page"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -15,45 +16,49 @@ async def get_ngx_filings() -> list:
                 timeout=30,
                 follow_redirects=True
             )
-            
+
         soup = BeautifulSoup(response.text, "html.parser")
+        cards = soup.find_all("div", class_="disclosure-card")
+        
         filings = []
-        
-        # parse filing entries
-        entries = soup.find_all(["div", "tr", "li"], class_=lambda x: x and any(
-            word in str(x).lower() for word in ["disclosure", "filing", "announcement"]
-        ))
-        
-        if not entries:
-            # fallback — parse table rows or list items
-            entries = soup.find_all("tr")[1:]  # skip header
-        
-        for entry in entries[:50]:
-            text = entry.get_text(separator=" ", strip=True)
-            if len(text) < 20:
+        for card in cards[:50]:  # limit to 50 most recent
+            ticker = card.get("data-symbol", "").strip()
+            filing_type = card.get("data-type", "").strip()
+            
+            # skip bonds and NGX notices
+            if ticker in ["NGX"] or not ticker:
                 continue
-                
-            # extract ticker if present
-            ticker = None
-            words = text.split()
-            for word in words:
-                if word.isupper() and 2 <= len(word) <= 12:
-                    ticker = word
-                    break
+            
+            title_div = card.find("div", class_="card-title")
+            summary_div = card.find("div", class_="card-summary")
+            date_span = card.find("span", class_="card-date")
+            
+            title = title_div.get_text(strip=True) if title_div else ""
+            summary = summary_div.get_text(separator=" ", strip=True) if summary_div else ""
+            date = date_span.get_text(strip=True) if date_span else ""
+            
+            if not summary:
+                continue
             
             filings.append({
-                "text": text[:500],
                 "ticker": ticker,
+                "filing_type": filing_type,
+                "title": title,
+                "text": f"{title}. {summary}"[:500],
+                "date": date,
                 "source": "NGX Disclosures",
                 "scraped_at": datetime.now(UTC).isoformat()
             })
-        
+
         logger.info(f"Got {len(filings)} filings from NGX Disclosures")
         return filings
-        
+
     except Exception as e:
         logger.error(f"Filings scrape error: {e}")
         return []
+
+async def get_all_filings() -> list:
+    return await get_ngx_filings()
 
 async def get_ngxpulse_filings() -> list:
     """Scrape NGX Pulse filings as backup source"""

@@ -99,8 +99,20 @@ async def send_filing_alert(chat_id: int, text: str):
     except Exception as e:
         logger.error(f"Filing alert send error: {e}")
 
+# filing types that warrant Claude analysis
+HIGH_VALUE_TYPES = [
+    "Financial Statements", "Financial Results",
+    "EarningForcast", "Corporate Actions"
+]
+
+# filing types to skip entirely — too routine
+SKIP_TYPES = [
+    "DirectorsDealings", "Annual General Meeting (AGM)",
+    "Board Meeting (BM)", "Notice to Issuer",
+    "Extra-Ordinary General Meeting (EGM)"
+]
+
 async def run_filings_monitor():
-    """Monitor NGX filings every 15 minutes during market hours"""
     logger.info("Running NGX filings monitor...")
     
     filings = await get_all_filings()
@@ -112,14 +124,28 @@ async def run_filings_monitor():
 
     for filing in filings:
         text = filing["text"]
+        filing_type = filing.get("filing_type", "")
+        
+        # skip routine filing types without calling Claude
+        if filing_type in SKIP_TYPES:
+            continue
         
         if already_stored(text):
             continue
 
-        filing_type = classify_filing_type(text)
-        analysis = analyze_filing(text, filing.get("ticker"))
+        # for high value types, use Claude
+        if filing_type in HIGH_VALUE_TYPES:
+            analysis = analyze_filing(text, filing.get("ticker"))
+        else:
+            # for everything else, use simple classification
+            analysis = {
+                "ticker": filing.get("ticker"),
+                "sentiment": "neutral",
+                "impact": "low",
+                "summary": filing["title"],
+                "action": "watch"
+            }
 
-        # store in database
         supabase.table("filings").insert({
             "ticker": analysis.get("ticker") or filing.get("ticker"),
             "filing_text": text[:500],
@@ -132,7 +158,7 @@ async def run_filings_monitor():
         }).execute()
 
         if analysis.get("impact") in ["high", "medium"]:
-            high_impact.append({**filing, **analysis, "filing_type": filing_type})
+            high_impact.append({**filing, **analysis})
 
     logger.info(f"Found {len(high_impact)} high/medium impact filings")
 
