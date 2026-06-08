@@ -43,35 +43,41 @@ def classify_filing_type(text: str) -> str:
 
 def analyze_filing(filing_text: str, ticker: str = None) -> dict:
     try:
-        prompt = f"""You are a Nigerian stock market analyst. Analyze this NGX company filing and assess its market impact.
+        prompt = f"""Analyze this NGX company filing. Return ONLY a JSON object, no other text, no markdown, no backticks.
 
-Filing: {filing_text}
-{'Company ticker: ' + ticker if ticker else ''}
+Filing: {filing_text[:300]}
+{'Ticker: ' + ticker if ticker else ''}
 
-Respond ONLY with JSON:
-{{
-    "ticker": "TICKER or null",
-    "sentiment": "positive/negative/neutral",
-    "impact": "high/medium/low",
-    "summary": "One sentence plain English — what happened and what it means for the stock price",
-    "action": "buy/sell/hold/watch — what investors should consider"
-}}
+Return exactly this JSON structure:
+{{"ticker": "{ticker or 'null'}", "sentiment": "positive", "impact": "low", "summary": "one sentence summary", "action": "watch"}}
 
 Rules:
-- high impact: earnings beats/misses, major acquisitions, dividends, rights issues, CEO changes
-- medium impact: board meetings, minor corporate actions, AGM notices  
-- low impact: routine filings, administrative notices
-- Only return JSON, nothing else."""
+- sentiment: positive, negative, or neutral only
+- impact: high, medium, or low only  
+- high impact: earnings, dividends, acquisitions, CEO changes, profit warnings
+- medium impact: board meetings, AGM notices, minor corporate actions
+- low impact: routine administrative filings
+- action: buy, sell, hold, or watch only
+- Return ONLY the JSON object, absolutely nothing else"""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=200,
+            max_tokens=150,
             messages=[{"role": "user", "content": prompt}]
         )
 
+        raw = response.content[0].text.strip()
+        
+        # clean any markdown if present
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+        
         import json
-        text = response.content[0].text.strip()
-        return json.loads(text)
+        return json.loads(raw)
+        
     except Exception as e:
         logger.error(f"Filing analysis error: {e}")
         return {
