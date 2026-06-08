@@ -11,8 +11,17 @@ client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # filing types that warrant Claude analysis
 HIGH_VALUE_TYPES = [
-    "Financial Statements", "Financial Results",
-    "EarningForcast", "Corporate Actions"
+    "Financial Statements",
+    "Financial Results", 
+    "EarningForcast"
+]
+
+# for Corporate Actions, only analyze if title contains these keywords
+HIGH_VALUE_KEYWORDS = [
+    "PROFIT", "LOSS", "EARNINGS", "REVENUE", "RESULTS",
+    "ACQUISITION", "MERGER", "TAKEOVER", "DELISTING",
+    "PROFIT WARNING", "GOING CONCERN", "INSOLVENCY",
+    "DIVIDEND", "CAPITAL RAISE", "RIGHTS ISSUE"
 ]
 
 # filing types to skip entirely — too routine
@@ -99,25 +108,36 @@ async def run_filings_monitor():
     for filing in filings:
         text = filing["text"]
         filing_type = filing.get("filing_type", "")
+        title = filing.get("title", "").upper()
 
-        # skip routine filing types without calling Claude
         if filing_type in SKIP_TYPES:
             continue
 
         if already_stored(text):
             continue
 
-        # only call Claude for high value filing types
-        if filing_type in HIGH_VALUE_TYPES:
+        # determine if worth analyzing
+        is_high_value = filing_type in HIGH_VALUE_TYPES
+        is_notable_action = (
+            filing_type == "Corporate Actions" and
+            any(kw in title for kw in HIGH_VALUE_KEYWORDS)
+        )
+
+        if is_high_value or is_notable_action:
             analysis = analyze_filing(text, filing.get("ticker"))
         else:
-            analysis = {
+            # store but don't analyze
+            supabase.table("filings").insert({
                 "ticker": filing.get("ticker"),
-                "sentiment": "neutral",
+                "filing_text": text[:500],
+                "filing_type": filing_type,
                 "impact": "low",
-                "summary": filing.get("title", filing_type),
-                "action": "watch"
-            }
+                "sentiment": "neutral",
+                "summary": filing.get("title", ""),
+                "source": filing.get("source", "NGX"),
+                "scraped_at": datetime.now(UTC).isoformat()
+            }).execute()
+            continue
 
         supabase.table("filings").insert({
             "ticker": analysis.get("ticker") or filing.get("ticker"),
