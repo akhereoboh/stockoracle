@@ -200,6 +200,24 @@ tools = [
     }
 },
 {
+    "name": "stock_performance",
+    "description": "Get detailed price performance for a specific NGX stock over a given period",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ticker": {
+                "type": "string",
+                "description": "The stock ticker e.g MTNN, GTCO, DANGCEM"
+            },
+            "days": {
+                "type": "integer",
+                "description": "Number of days to look back, default 30"
+            }
+        },
+        "required": ["ticker"]
+    }
+},
+{
     "name": "volatility_profile",
     "description": "Profile stocks by volatility — identify stable movers vs high risk stocks",
     "input_schema": {
@@ -267,6 +285,57 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
             for i, s in enumerate(result.data, 1):
                 lines.append(f"{i}. {s['ticker']} — Entry: ₦{s['entry_price']}, TP1: ₦{s['tp1']}, TP2: ₦{s['tp2']}, Stop Loss: ₦{s['stop_loss']}")
             return "\n".join(lines)
+        
+        elif tool_name == "stock_performance":
+            ticker = tool_input.get("ticker", "").upper()
+            days = tool_input.get("days", 30)
+            from datetime import date, timedelta
+            from app.signal_engine import clean_price, clean_change
+
+            since = (date.today() - timedelta(days=days)).isoformat()
+
+            result = supabase.table("stocks")\
+                .select("ticker, price, change, trade_date, signal, volume")\
+                .eq("ticker", ticker)\
+                .gte("trade_date", since)\
+                .order("trade_date", desc=False)\
+                .execute()
+
+            records = result.data or []
+            if not records:
+                return f"No data found for {ticker} in the last {days} days."
+
+            prices = [clean_price(r["price"]) for r in records if clean_price(r["price"]) > 0]
+            changes = [clean_change(r.get("change","0%")) for r in records]
+
+            if len(prices) < 2:
+                return f"Not enough data for {ticker}."
+
+            start_price = prices[0]
+            end_price = prices[-1]
+            high = max(prices)
+            low = min(prices)
+            total_return = ((end_price - start_price) / start_price) * 100
+
+            up_days = sum(1 for c in changes if c > 0)
+            down_days = sum(1 for c in changes if c < 0)
+            flat_days = sum(1 for c in changes if c == 0)
+
+            avg_daily = sum(changes) / len(changes) if changes else 0
+            current_signal = records[-1].get("signal", "NO DATA")
+
+            return (
+                f"{ticker} Performance — Last {days} days ({len(records)} trading days)\n\n"
+                f"Start price: ₦{start_price:,.2f}\n"
+                f"Current price: ₦{end_price:,.2f}\n"
+                f"Total return: {total_return:+.2f}%\n\n"
+                f"Period high: ₦{high:,.2f}\n"
+                f"Period low: ₦{low:,.2f}\n"
+                f"Range: ₦{high-low:,.2f} ({((high-low)/low*100):.1f}%)\n\n"
+                f"Up days: {up_days} | Down days: {down_days} | Flat: {flat_days}\n"
+                f"Average daily move: {avg_daily:+.2f}%\n"
+                f"Current signal: {current_signal}"
+            )
 
         elif tool_name == "search_stocks":
             query = tool_input["query"].upper()

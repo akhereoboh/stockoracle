@@ -59,18 +59,31 @@ async def main():
 
     scheduler = start_scheduler()
 
+    # monday sequence — scrape first, then signals 15min later, broadcast 15min after that
+    scheduler.add_job(
+        scrape_and_save,
+        CronTrigger(hour=7, minute=0, day_of_week="mon", timezone="UTC")
+    )
     scheduler.add_job(
         run_signal_engine,
-        CronTrigger(hour=7, minute=0, day_of_week="mon", timezone="UTC")
+        CronTrigger(hour=7, minute=15, day_of_week="mon", timezone="UTC")
     )
     scheduler.add_job(
         broadcast_weekly_signals,
         CronTrigger(hour=7, minute=30, day_of_week="mon", timezone="UTC")
     )
+
+    # tue-fri — scrape at 7:30, daily signals at 7:45
+    scheduler.add_job(
+        scrape_and_save,
+        CronTrigger(hour=7, minute=30, day_of_week="tue-fri", timezone="UTC")
+    )
     scheduler.add_job(
         broadcast_daily_signals,
         CronTrigger(hour=7, minute=45, day_of_week="tue-fri", timezone="UTC")
     )
+
+    # weekday jobs
     scheduler.add_job(
         send_tp_alerts,
         CronTrigger(hour=13, minute=50, day_of_week="mon-fri", timezone="UTC")

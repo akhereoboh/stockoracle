@@ -218,8 +218,8 @@ def score_stock(stock: dict, history: list) -> float:
     if price < 1:
         return 0.0
 
-    # minimum 5 days history
-    if len(history) < 5:
+ # minimum 3 days history
+    if len(history) < 3:
         return 0.0
 
     # liquidity gate
@@ -232,10 +232,13 @@ def score_stock(stock: dict, history: list) -> float:
     if trend == "downtrend":
         return 0.0
 
-    # require at least 2 consecutive up days
-    consecutive_up = count_consecutive_up_days(history)
-    if consecutive_up < 2:
-        return 0.0
+    # consecutive up days — only enforce strictly if enough history
+    if len(history) >= 5:
+        consecutive_up = count_consecutive_up_days(history)
+        if consecutive_up < 2:
+            return 0.0
+    else:
+        consecutive_up = count_consecutive_up_days(history)
 
     # signal score
     if "BUY" in signal:
