@@ -290,12 +290,12 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
             ticker = tool_input.get("ticker", "").upper()
             days = tool_input.get("days", 30)
             from datetime import date, timedelta
-            from app.signal_engine import clean_price, clean_change
+            from app.signal_engine import clean_price
 
             since = (date.today() - timedelta(days=days)).isoformat()
 
             result = supabase.table("stocks")\
-                .select("ticker, price, change, trade_date, signal, volume")\
+                .select("ticker, price, change, trade_date, signal")\
                 .eq("ticker", ticker)\
                 .gte("trade_date", since)\
                 .order("trade_date", desc=False)\
@@ -305,35 +305,27 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
             if not records:
                 return f"No data found for {ticker} in the last {days} days."
 
-            prices = [clean_price(r["price"]) for r in records if clean_price(r["price"]) > 0]
-            changes = [clean_change(r.get("change","0%")) for r in records]
+            prices_with_dates = [
+                (r["trade_date"], clean_price(r["price"]))
+                for r in records if clean_price(r["price"]) > 0
+            ]
 
-            if len(prices) < 2:
+            if len(prices_with_dates) < 2:
                 return f"Not enough data for {ticker}."
 
-            start_price = prices[0]
-            end_price = prices[-1]
-            high = max(prices)
-            low = min(prices)
+            start_date, start_price = prices_with_dates[0]
+            end_date, end_price = prices_with_dates[-1]
+            high = max(p for _, p in prices_with_dates)
+            low = min(p for _, p in prices_with_dates)
             total_return = ((end_price - start_price) / start_price) * 100
-
-            up_days = sum(1 for c in changes if c > 0)
-            down_days = sum(1 for c in changes if c < 0)
-            flat_days = sum(1 for c in changes if c == 0)
-
-            avg_daily = sum(changes) / len(changes) if changes else 0
+            direction = "📈" if total_return > 0 else "📉" if total_return < 0 else "➡️"
             current_signal = records[-1].get("signal", "NO DATA")
 
             return (
-                f"{ticker} Performance — Last {days} days ({len(records)} trading days)\n\n"
-                f"Start price: ₦{start_price:,.2f}\n"
-                f"Current price: ₦{end_price:,.2f}\n"
-                f"Total return: {total_return:+.2f}%\n\n"
-                f"Period high: ₦{high:,.2f}\n"
-                f"Period low: ₦{low:,.2f}\n"
-                f"Range: ₦{high-low:,.2f} ({((high-low)/low*100):.1f}%)\n\n"
-                f"Up days: {up_days} | Down days: {down_days} | Flat: {flat_days}\n"
-                f"Average daily move: {avg_daily:+.2f}%\n"
+                f"{ticker} — Last {days} days\n\n"
+                f"{direction} {start_date}: ₦{start_price:,.2f} → {end_date}: ₦{end_price:,.2f}\n"
+                f"Return: {total_return:+.2f}%\n\n"
+                f"High: ₦{high:,.2f} | Low: ₦{low:,.2f}\n"
                 f"Current signal: {current_signal}"
             )
 
@@ -938,7 +930,7 @@ Commands users can use:
 /subscribe — subscribe to Basic or Pro
 /mystatus — check subscription status
 /performance — signal track record
-/referral — get referral link (earn 7 free days per converting referral)
+/referral — get referral link (earn ₦1,000 cash per paying referral)
 /clear — reset conversation
 
 TOOL USAGE — CRITICAL:
@@ -951,6 +943,10 @@ Always use tools to answer questions about stocks. Never answer from general kno
 - User asks about sector performance → use sector_performance
 - User asks what day is best to buy → use best_trading_days
 If you're about to answer a market question from memory, STOP and use a tool instead.
+WHEN USING stock_performance TOOL:
+Step 1 — paste the data block exactly as returned by the tool (dates, prices, return, high/low, signal).
+Step 2 — add exactly 2 sentences: one explaining what the numbers mean, one clear verdict (buy/hold/sell and why).
+No other text. Numbers then verdict. That is the complete response.
 
 SUBSCRIPTION PLANS:
 Basic ₦5,999/month — all 5 weekly signals every Monday, take profit and stop loss alerts, unlimited stock lookups, full AI analysis, watchlist, news alerts
