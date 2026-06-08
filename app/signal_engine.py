@@ -7,16 +7,15 @@ import re
 logger = logging.getLogger(__name__)
 
 def is_tradeable_equity(ticker: str, company: str = "") -> bool:
-    
-    # must be valid ticker format: letters and numbers, starts with letter
+
     if not re.match(r'^[A-Z][A-Z0-9]{1,14}$', ticker):
         return False
-    
+
     # 4+ consecutive digits = bond/dated instrument
     if re.search(r'\d{4}', ticker):
         return False
-    
-    # explicit non-equity prefixes only
+
+    # explicit non-equity prefixes
     non_equity_prefixes = [
         'NGX', 'ASI', 'TAJSUKS', 'MECU', 'COLE',
         'SOVRIGHTS', 'UNITYRIGHTS',
@@ -24,44 +23,40 @@ def is_tradeable_equity(ticker: str, company: str = "") -> bool:
     for prefix in non_equity_prefixes:
         if ticker.startswith(prefix):
             return False
-    
-    # rights issues — RR prefix
+
+    # rights issues
     if ticker.startswith('RR'):
         return False
-    
-    # commercial paper — CP prefix  
+
+    # commercial paper
     if re.match(r'^CP\d', ticker):
         return False
-    
+
     # pure numbers
     if ticker.isdigit():
         return False
-    
-    # company name: only exclude if clearly a fund/bond instrument
+
+    # ETF tickers
+    if ticker.endswith('ETF'):
+        return False
+
+    # bond and index instruments
+    if 'BOND' in ticker or 'INDX' in ticker:
+        return False
+
+    # company name filter
     if company:
         company_upper = company.upper()
-        # very specific phrases only — not single words
         non_equity_phrases = [
-            'MONEY MARKET FUND',
-            'FIXED INCOME FUND', 
-            'BOND FUND',
-            'SUKUK',
-            'TREASURY BILL',
-            '% FGS',      # government securities format
-            '% FGN',
-            '% TSL',
-            '% CEMC',
-            'RIGHTS ISSUE',
-            '2025 RIGHTS',
-            '2026 RIGHTS',
-            'INFRASTRUCTURE FUND',
-            'LAST UPDATED',
-            'HOLD SIGNALS',
-            'SPREAD', 'REAL ESTATE INVEST', 'REIT',
-            'BLANCED FUND', 'EQUITY FUND', 'GROWTH FUND',
-            'NGX', 'ASI', 'TAJSUKS', 'MECU', 'COLE',
-            'SOVRIGHTS', 'UNITYRIGHTS', 'MOFIREIF',
-            'FFFBN', 'FFUNC', 'FFLEGY', 'FFFSDHC',
+            'MONEY MARKET FUND', 'FIXED INCOME FUND', 'BOND FUND',
+            'SUKUK', 'ETF', 'EXCHANGE TRADED FUND', 'INDEX FUND',
+            'SOVEREIGN BOND', 'TREASURY BILL', 'UNIT TRUST',
+            'INFRASTRUCTURE FUND', 'BALANCED FUND', 'EQUITY FUND',
+            'GROWTH FUND', 'REAL ESTATE INVEST', 'REIT',
+            '% FGS', '% FGN', '% TSL', '% CEMC',
+            'RIGHTS ISSUE', '2025 RIGHTS', '2026 RIGHTS',
+            'LAST UPDATED', 'HOLD SIGNALS', 'SPREAD',
+            'MOFIREIF', 'FFFBN', 'FFUNC', 'FFLEGY', 'FFFSDHC',
             'FFIONE', 'FFFRONT', 'CNIF', 'AVAIF',
             'MERVAL', 'MERG', 'NIDF',
             'VETGOODS', 'VETBANK', 'SIAMLETF',
@@ -71,7 +66,7 @@ def is_tradeable_equity(ticker: str, company: str = "") -> bool:
         for phrase in non_equity_phrases:
             if phrase in company_upper:
                 return False
-    
+
     return True
 
 def clean_price(price_str: str) -> float:
