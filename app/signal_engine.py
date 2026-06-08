@@ -193,14 +193,18 @@ def get_average_volume(history: list) -> float:
 def get_price_trend(history: list) -> str:
     if len(history) < 5:
         return "unknown"
+    
     prices = [clean_price(h["price"]) for h in history if clean_price(h["price"]) > 0]
+    
     if len(prices) < 5:
         return "unknown"
-    avg5 = sum(prices[-5:]) / 5
-    avg10 = sum(prices) / len(prices)
-    if avg5 > avg10:
+    
+    avg_5 = sum(prices[-5:]) / 5
+    avg_20 = sum(prices[-20:]) / len(prices[-20:]) if len(prices) >= 20 else sum(prices) / len(prices)
+    
+    if avg_5 > avg_20 * 1.01:
         return "uptrend"
-    elif avg5 < avg10 * 0.97:
+    elif avg_5 < avg_20 * 0.99:
         return "downtrend"
     return "sideways"
 
