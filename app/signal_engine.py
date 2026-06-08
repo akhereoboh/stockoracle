@@ -334,8 +334,8 @@ def run_signal_engine() -> list:
         history = history_map.get(ticker, [])
         score = score_stock(stock, history)
 
-        # minimum 60 points — high conviction only
-        if score >= 60:
+        # minimum 50 points — high conviction only
+        if score >= 50:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)

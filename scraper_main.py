@@ -4,7 +4,7 @@ from app.scheduler import start_scheduler, scrape_and_save
 from app.signal_engine import run_signal_engine
 from app.broadcaster import send_tp_alerts, send_watchlist_updates, get_active_paid_users, _send
 from app.daily_signals import broadcast_daily_signals
-from app.news_analyzer import run_news_monitor
+from app.news_analyzer import run_filings_monitor
 from app.hermes import review_signals, monitor_active_signals, weekly_digest
 from app.database import supabase
 from apscheduler.triggers.cron import CronTrigger
@@ -76,7 +76,7 @@ async def main():
     # tue-fri — scrape at 7:30, daily signals at 7:45
     scheduler.add_job(
         scrape_and_save,
-        CronTrigger(hour=7, minute=30, day_of_week="tue-fri", timezone="UTC")
+        CronTrigger(hour=7, minute=0, day_of_week="tue-fri", timezone="UTC")
     )
     scheduler.add_job(
         broadcast_daily_signals,
@@ -88,9 +88,12 @@ async def main():
         send_tp_alerts,
         CronTrigger(hour=13, minute=50, day_of_week="mon-fri", timezone="UTC")
     )
+    # from app.news_analyzer import run_filings_monitor
+
+    # replace the news monitor job
     scheduler.add_job(
-        run_news_monitor,
-        CronTrigger(hour="8-14", minute=0, day_of_week="mon-fri", timezone="UTC")
+        run_filings_monitor,
+        CronTrigger(minute="0,15,30,45", hour="7-16", day_of_week="mon-fri", timezone="UTC")
     )
     scheduler.add_job(
         send_watchlist_updates,

@@ -24,20 +24,16 @@ async def send_hermes_alert(text: str):
     except Exception as e:
         logger.error(f"Hermes alert error: {e}")
 
+from app.news_analyzer import get_recent_filings_for_hermes
+
 async def review_signals(signals: list) -> list:
-    """Review signals before broadcast. Returns approved list."""
     if not signals:
         return []
 
     logger.info(f"Hermes reviewing {len(signals)} signals...")
 
-    # get recent high-impact news
-    news_result = supabase.table("news_alerts")\
-        .select("headline, tickers, sentiment, impact")\
-        .eq("impact", "high")\
-        .gte("created_at", (datetime.now(UTC) - timedelta(days=2)).isoformat())\
-        .execute()
-    news = news_result.data or []
+    # get FRESH regulatory filings instead of stale news
+    filings = await get_recent_filings_for_hermes()
 
     # get market breadth
     stocks_result = supabase.table("stocks")\
@@ -56,35 +52,37 @@ async def review_signals(signals: list) -> list:
         for s in signals
     ])
 
-    news_text = "\n".join([
-        f"{n['headline']} (Tickers: {', '.join(n.get('tickers') or [])} | {n['sentiment']})"
-        for n in news
-    ]) if news else "No major news in last 48 hours"
+    if filings:
+        filings_text = "\n".join([
+            f"{f.get('ticker','?')} — {f.get('filing_type','').upper()}: {f.get('summary','')} "
+            f"(Sentiment: {f.get('sentiment','neutral')}, Impact: {f.get('impact','low')})"
+            for f in filings
+        ])
+    else:
+        filings_text = "No material filings in the last 24 hours"
 
-    prompt = f"""You are Hermes, signal quality auditor for StockOracle — a Nigerian stock market AI.
+    prompt = f"""You are Hermes, signal quality auditor for StockOracle.
 
-Review these signals before they broadcast to paying users. Be strict. Real money is at stake.
+Review these signals before they broadcast to paying users. Real money is at stake. Be strict.
 
 PROPOSED SIGNALS:
 {signals_text}
 
 MARKET BREADTH: {breadth:.1f}% of NGX stocks are up today
 
-RECENT HIGH-IMPACT NEWS:
-{news_text}
+RECENT NGX REGULATORY FILINGS (fresh — not news articles):
+{filings_text}
 
-For each signal decide APPROVE or REJECT based on:
-- Does recent negative news affect this stock or sector?
-- Is market breadth healthy (above 45% is good, below 40% is bad)?
-- Any obvious red flags?
+For each signal decide APPROVE or REJECT:
+- Reject if a recent filing shows negative earnings, profit warning, or regulatory issues for that stock
+- Reject if the stock's sector has negative material filings
+- Reject if market breadth is below 40%
+- Approve if fundamentals are clean and breadth supports it
 
-Format your response EXACTLY like this:
-TICKER1: APPROVE — reason
-TICKER2: REJECT — reason
+Format:
+TICKER: APPROVE/REJECT — reason
 ...
-APPROVED: TICKER1, TICKER3
-
-Only include tickers on the APPROVED line that you approved above."""
+APPROVED: TICKER1, TICKER2"""
 
     try:
         response = client.messages.create(
@@ -96,7 +94,6 @@ Only include tickers on the APPROVED line that you approved above."""
         review = response.content[0].text
         logger.info(f"Hermes review:\n{review}")
 
-        # parse approved tickers
         approved_tickers = []
         for line in review.split("\n"):
             if line.strip().startswith("APPROVED:"):
@@ -107,7 +104,6 @@ Only include tickers on the APPROVED line that you approved above."""
         approved = [s for s in signals if s["ticker"] in approved_tickers]
         rejected = [s["ticker"] for s in signals if s["ticker"] not in approved_tickers]
 
-        # notify admin
         msg = (
             f"Signal Audit Complete\n\n"
             f"Proposed: {len(signals)} | Approved: {len(approved)} | Rejected: {len(rejected)}\n"
@@ -115,7 +111,6 @@ Only include tickers on the APPROVED line that you approved above."""
             f"{review}"
         )
         await send_hermes_alert(msg)
-
         return approved
 
     except Exception as e:
@@ -124,7 +119,7 @@ Only include tickers on the APPROVED line that you approved above."""
         return signals
 
 async def monitor_active_signals():
-    """Check if breaking news affects active signals."""
+    """Check if recent filings affect active signals."""
     signals_result = supabase.table("signals")\
         .select("ticker")\
         .eq("status", "active")\
@@ -134,20 +129,22 @@ async def monitor_active_signals():
     if not active_tickers:
         return
 
-    news_result = supabase.table("news_alerts")\
+    # use filings table instead of news_alerts
+    filings_result = supabase.table("filings")\
         .select("*")\
-        .eq("impact", "high")\
+        .in_("impact", ["high", "medium"])\
         .eq("alert_sent", False)\
         .execute()
 
-    for news in (news_result.data or []):
-        affected = [t for t in (news.get("tickers") or []) if t in active_tickers]
-        if affected:
+    for filing in (filings_result.data or []):
+        ticker = filing.get("ticker")
+        if ticker and ticker in active_tickers:
             await send_hermes_alert(
                 f"⚠️ Active Signal Risk\n\n"
-                f"Breaking news affects: {', '.join(affected)}\n\n"
-                f"{news['headline']}\n"
-                f"Sentiment: {news['sentiment']}\n\n"
+                f"New filing affects active signal: {ticker}\n\n"
+                f"{filing.get('summary', '')}\n"
+                f"Type: {filing.get('filing_type', '')}\n"
+                f"Sentiment: {filing.get('sentiment', '')}\n\n"
                 f"Consider alerting subscribers."
             )
 

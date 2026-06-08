@@ -18,43 +18,54 @@ NGX_TICKERS = [
     "OKOMUOIL", "PRESCO", "JBERGER", "JULIUS", "NAHCO", "GEREGU"
 ]
 
-def already_stored(headline: str) -> bool:
-    result = supabase.table("news_alerts")\
+def already_stored(filing_text: str) -> bool:
+    result = supabase.table("filings")\
         .select("id")\
-        .eq("headline", headline[:200])\
+        .eq("filing_text", filing_text[:200])\
         .execute()
     return len(result.data) > 0
 
-def analyze_headline(headline: str, description: str) -> dict:
+def classify_filing_type(text: str) -> str:
+    text_upper = text.upper()
+    if any(w in text_upper for w in ["EARNINGS", "FINANCIAL RESULT", "PROFIT", "REVENUE", "TURNOVER"]):
+        return "earnings"
+    if any(w in text_upper for w in ["DIVIDEND", "BONUS", "QUALIFICATION DATE"]):
+        return "dividend"
+    if any(w in text_upper for w in ["BOARD MEETING", "DIRECTOR", "APPOINTMENT", "RESIGNATION"]):
+        return "board"
+    if any(w in text_upper for w in ["ACQUISITION", "MERGER", "TAKEOVER", "STAKE"]):
+        return "merger"
+    if any(w in text_upper for w in ["AGM", "ANNUAL GENERAL", "EXTRAORDINARY GENERAL"]):
+        return "agm"
+    if any(w in text_upper for w in ["RIGHTS ISSUE", "PUBLIC OFFER", "CAPITAL RAISE"]):
+        return "capital"
+    return "general"
+
+def analyze_filing(filing_text: str, ticker: str = None) -> dict:
     try:
-        prompt = f"""Analyze this Nigerian financial news headline and description.
+        prompt = f"""You are a Nigerian stock market analyst. Analyze this NGX company filing and assess its market impact.
 
-Headline: {headline}
-Description: {description}
+Filing: {filing_text}
+{'Company ticker: ' + ticker if ticker else ''}
 
-Respond ONLY with a JSON object like this:
+Respond ONLY with JSON:
 {{
-    "tickers": ["GTCO", "MTNN"],
-    "sentiment": "positive",
-    "impact": "high",
-    "summary": "One sentence plain English explanation of what this means for investors",
-    "action": "What investors should consider doing"
+    "ticker": "TICKER or null",
+    "sentiment": "positive/negative/neutral",
+    "impact": "high/medium/low",
+    "summary": "One sentence plain English — what happened and what it means for the stock price",
+    "action": "buy/sell/hold/watch — what investors should consider"
 }}
 
 Rules:
-- tickers: list of NGX ticker symbols affected. Only use real NGX tickers. Empty array if none.
-- sentiment: "positive", "negative", or "neutral"
-- impact: "high", "medium", or "low"
-- high impact means: CBN policy changes, major earnings surprises, large investments, mergers, sanctions
-- medium impact means: regular earnings, management changes, product launches
-- low impact means: minor news, general market commentary
-- If no specific NGX stock is affected, return empty tickers array and impact "low"
-
-Only return the JSON, nothing else."""
+- high impact: earnings beats/misses, major acquisitions, dividends, rights issues, CEO changes
+- medium impact: board meetings, minor corporate actions, AGM notices  
+- low impact: routine filings, administrative notices
+- Only return JSON, nothing else."""
 
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=300,
+            max_tokens=200,
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -62,69 +73,107 @@ Only return the JSON, nothing else."""
         text = response.content[0].text.strip()
         return json.loads(text)
     except Exception as e:
-        logger.error(f"Analysis error: {e}")
-        return {"tickers": [], "sentiment": "neutral", "impact": "low", "summary": "", "action": ""}
+        logger.error(f"Filing analysis error: {e}")
+        return {
+            "ticker": ticker,
+            "sentiment": "neutral",
+            "impact": "low",
+            "summary": filing_text[:100],
+            "action": "watch"
+        }
 
-async def run_news_monitor():
-    logger.info("Running news monitor...")
-    articles = get_all_news()
+async def send_filing_alert(chat_id: int, text: str):
+    try:
+        async with httpx.AsyncClient() as http:
+            await http.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=10
+            )
+    except Exception as e:
+        logger.error(f"Filing alert send error: {e}")
+
+async def run_filings_monitor():
+    """Monitor NGX filings every 15 minutes during market hours"""
+    logger.info("Running NGX filings monitor...")
+    
+    filings = await get_all_filings()
+    if not filings:
+        logger.info("No filings retrieved")
+        return
+
     high_impact = []
 
-    for article in articles:
-        headline = article["headline"]
-        if already_stored(headline):
+    for filing in filings:
+        text = filing["text"]
+        
+        if already_stored(text):
             continue
 
-        analysis = analyze_headline(headline, article.get("description", ""))
+        filing_type = classify_filing_type(text)
+        analysis = analyze_filing(text, filing.get("ticker"))
 
-        supabase.table("news_alerts").insert({
-            "headline": headline[:200],
-            "tickers": analysis.get("tickers", []),
-            "sentiment": analysis.get("sentiment", "neutral"),
+        # store in database
+        supabase.table("filings").insert({
+            "ticker": analysis.get("ticker") or filing.get("ticker"),
+            "filing_text": text[:500],
+            "filing_type": filing_type,
             "impact": analysis.get("impact", "low"),
-            "source": article["source"],
-            "url": article.get("url", ""),
-            "created_at": datetime.now(UTC).isoformat()
+            "sentiment": analysis.get("sentiment", "neutral"),
+            "summary": analysis.get("summary", ""),
+            "source": filing.get("source", "NGX"),
+            "scraped_at": datetime.now(UTC).isoformat()
         }).execute()
 
-        if analysis.get("impact") == "high" and analysis.get("tickers"):
-            high_impact.append({**article, **analysis})
+        if analysis.get("impact") in ["high", "medium"]:
+            high_impact.append({**filing, **analysis, "filing_type": filing_type})
 
-    logger.info(f"Found {len(high_impact)} high impact stories")
+    logger.info(f"Found {len(high_impact)} high/medium impact filings")
 
     if high_impact:
-        await send_news_alerts(high_impact)
+        await broadcast_filing_alerts(high_impact)
 
-async def send_news_alerts(stories: list):
-    from app.broadcaster import get_active_paid_users, _send
+async def broadcast_filing_alerts(filings: list):
+    from app.broadcaster import get_active_paid_users
+
     paid_users = get_active_paid_users(["basic", "pro"])
+    if not paid_users:
+        return
 
-    for story in stories:
-        tickers = story.get("tickers", [])
-        sentiment = story.get("sentiment", "neutral")
-        summary = story.get("summary", "")
-        action = story.get("action", "")
-        headline = story.get("headline", "")
-        source = story.get("source", "")
-        url = story.get("url", "")
+    for filing in filings:
+        ticker = filing.get("ticker", "")
+        sentiment = filing.get("sentiment", "neutral")
+        summary = filing.get("summary", "")
+        action = filing.get("action", "watch")
+        filing_type = filing.get("filing_type", "general")
+        source = filing.get("source", "NGX")
 
-        emoji = "📈" if sentiment == "positive" else "📉" if sentiment == "negative" else "📰"
+        emoji = "📈" if sentiment == "positive" else "📉" if sentiment == "negative" else "📋"
+        impact_label = "🔴 High Impact" if filing.get("impact") == "high" else "🟡 Market Update"
 
         msg = (
-            f"{emoji} Market Alert\n\n"
-            f"{headline}\n\n"
-            f"What this means: {summary}\n\n"
-            f"Stocks affected: {', '.join(tickers)}\n\n"
-            f"What to consider: {action}\n\n"
+            f"{emoji} {impact_label}\n\n"
+            f"{'$' + ticker + ' — ' if ticker else ''}{filing_type.upper()}\n\n"
+            f"{summary}\n\n"
+            f"Recommendation: {action.upper()}\n"
             f"Source: {source}"
         )
-        if url:
-            msg += f"\n{url}"
 
         for user in paid_users:
-            await _send(user["telegram_id"], msg)
+            await send_filing_alert(user["telegram_id"], msg)
 
-        supabase.table("news_alerts")\
+        # mark as sent
+        supabase.table("filings")\
             .update({"alert_sent": True})\
-            .eq("headline", headline[:200])\
+            .eq("filing_text", filing["text"][:200])\
             .execute()
+
+async def get_recent_filings_for_hermes() -> list:
+    """Get recent high-impact filings for Hermes to use in signal review"""
+    result = supabase.table("filings")\
+        .select("ticker, filing_type, sentiment, impact, summary")\
+        .in_("impact", ["high", "medium"])\
+        .order("created_at", desc=True)\
+        .limit(20)\
+        .execute()
+    return result.data or []
