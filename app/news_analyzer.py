@@ -5,17 +5,21 @@ from app.config import ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
 from app.database import supabase
 from app.scrapers.filings import get_all_filings
 from datetime import datetime, UTC
+
 logger = logging.getLogger(__name__)
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-NGX_TICKERS = [
-    "GTCO", "ZENITHBANK", "ACCESSCORP", "UBA", "FIDELITYBK", "FCMB",
-    "WEMABANK", "STANBIC", "FIRSTHOLDCO", "JAIZBANK", "MTNN", "AIRTELAFRI",
-    "SEPLAT", "OANDO", "TOTAL", "ETERNA", "CONOIL", "ARADEL",
-    "DANGSUGAR", "NASCON", "NESTLE", "UNILEVER", "CADBURY", "NB",
-    "GUINNESS", "HONYFLOUR", "BUAFOODS", "DANGCEM", "BUACEMENT", "WAPCO",
-    "AIICO", "MANSARD", "CUSTODIAN", "NEM", "NGXGROUP", "TRANSCORP",
-    "OKOMUOIL", "PRESCO", "JBERGER", "JULIUS", "NAHCO", "GEREGU"
+# filing types that warrant Claude analysis
+HIGH_VALUE_TYPES = [
+    "Financial Statements", "Financial Results",
+    "EarningForcast", "Corporate Actions"
+]
+
+# filing types to skip entirely — too routine
+SKIP_TYPES = [
+    "DirectorsDealings", "Annual General Meeting (AGM)",
+    "Board Meeting (BM)", "Notice to Issuer",
+    "Extra-Ordinary General Meeting (EGM)"
 ]
 
 def already_stored(filing_text: str) -> bool:
@@ -24,22 +28,6 @@ def already_stored(filing_text: str) -> bool:
         .eq("filing_text", filing_text[:200])\
         .execute()
     return len(result.data) > 0
-
-def classify_filing_type(text: str) -> str:
-    text_upper = text.upper()
-    if any(w in text_upper for w in ["EARNINGS", "FINANCIAL RESULT", "PROFIT", "REVENUE", "TURNOVER"]):
-        return "earnings"
-    if any(w in text_upper for w in ["DIVIDEND", "BONUS", "QUALIFICATION DATE"]):
-        return "dividend"
-    if any(w in text_upper for w in ["BOARD MEETING", "DIRECTOR", "APPOINTMENT", "RESIGNATION"]):
-        return "board"
-    if any(w in text_upper for w in ["ACQUISITION", "MERGER", "TAKEOVER", "STAKE"]):
-        return "merger"
-    if any(w in text_upper for w in ["AGM", "ANNUAL GENERAL", "EXTRAORDINARY GENERAL"]):
-        return "agm"
-    if any(w in text_upper for w in ["RIGHTS ISSUE", "PUBLIC OFFER", "CAPITAL RAISE"]):
-        return "capital"
-    return "general"
 
 def analyze_filing(filing_text: str, ticker: str = None) -> dict:
     try:
@@ -53,10 +41,10 @@ Return exactly this JSON structure:
 
 Rules:
 - sentiment: positive, negative, or neutral only
-- impact: high, medium, or low only  
-- high impact: earnings, dividends, acquisitions, CEO changes, profit warnings
-- medium impact: board meetings, AGM notices, minor corporate actions
-- low impact: routine administrative filings
+- impact: high, medium, or low only
+- high impact: earnings beats/misses, profit warnings, major acquisitions, CEO changes, dividends
+- medium impact: minor corporate actions, regulatory approvals
+- low impact: routine filings
 - action: buy, sell, hold, or watch only
 - Return ONLY the JSON object, absolutely nothing else"""
 
@@ -67,17 +55,16 @@ Rules:
         )
 
         raw = response.content[0].text.strip()
-        
-        # clean any markdown if present
+
         if "```" in raw:
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
         raw = raw.strip()
-        
+
         import json
         return json.loads(raw)
-        
+
     except Exception as e:
         logger.error(f"Filing analysis error: {e}")
         return {
@@ -99,22 +86,9 @@ async def send_filing_alert(chat_id: int, text: str):
     except Exception as e:
         logger.error(f"Filing alert send error: {e}")
 
-# filing types that warrant Claude analysis
-HIGH_VALUE_TYPES = [
-    "Financial Statements", "Financial Results",
-    "EarningForcast", "Corporate Actions"
-]
-
-# filing types to skip entirely — too routine
-SKIP_TYPES = [
-    "DirectorsDealings", "Annual General Meeting (AGM)",
-    "Board Meeting (BM)", "Notice to Issuer",
-    "Extra-Ordinary General Meeting (EGM)"
-]
-
 async def run_filings_monitor():
     logger.info("Running NGX filings monitor...")
-    
+
     filings = await get_all_filings()
     if not filings:
         logger.info("No filings retrieved")
@@ -125,24 +99,23 @@ async def run_filings_monitor():
     for filing in filings:
         text = filing["text"]
         filing_type = filing.get("filing_type", "")
-        
+
         # skip routine filing types without calling Claude
         if filing_type in SKIP_TYPES:
             continue
-        
+
         if already_stored(text):
             continue
 
-        # for high value types, use Claude
+        # only call Claude for high value filing types
         if filing_type in HIGH_VALUE_TYPES:
             analysis = analyze_filing(text, filing.get("ticker"))
         else:
-            # for everything else, use simple classification
             analysis = {
                 "ticker": filing.get("ticker"),
                 "sentiment": "neutral",
                 "impact": "low",
-                "summary": filing["title"],
+                "summary": filing.get("title", filing_type),
                 "action": "watch"
             }
 
@@ -177,7 +150,7 @@ async def broadcast_filing_alerts(filings: list):
         sentiment = filing.get("sentiment", "neutral")
         summary = filing.get("summary", "")
         action = filing.get("action", "watch")
-        filing_type = filing.get("filing_type", "general")
+        filing_type = filing.get("filing_type", "")
         source = filing.get("source", "NGX")
 
         emoji = "📈" if sentiment == "positive" else "📉" if sentiment == "negative" else "📋"
@@ -194,14 +167,12 @@ async def broadcast_filing_alerts(filings: list):
         for user in paid_users:
             await send_filing_alert(user["telegram_id"], msg)
 
-        # mark as sent
         supabase.table("filings")\
             .update({"alert_sent": True})\
             .eq("filing_text", filing["text"][:200])\
             .execute()
 
 async def get_recent_filings_for_hermes() -> list:
-    """Get recent high-impact filings for Hermes to use in signal review"""
     result = supabase.table("filings")\
         .select("ticker, filing_type, sentiment, impact, summary")\
         .in_("impact", ["high", "medium"])\
