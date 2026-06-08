@@ -92,8 +92,8 @@ async def main():
 
     # replace the news monitor job
     scheduler.add_job(
-        run_filings_monitor,
-        CronTrigger(minute="0,15,30,45", hour="7-16", day_of_week="mon-fri", timezone="UTC")
+    run_filings_monitor,
+    CronTrigger(hour="8,12", minute=0, day_of_week="mon-fri", timezone="UTC")
     )
     scheduler.add_job(
         send_watchlist_updates,

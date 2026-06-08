@@ -119,7 +119,6 @@ APPROVED: TICKER1, TICKER2"""
         return signals
 
 async def monitor_active_signals():
-    """Check if recent filings affect active signals."""
     signals_result = supabase.table("signals")\
         .select("ticker")\
         .eq("status", "active")\
@@ -129,11 +128,11 @@ async def monitor_active_signals():
     if not active_tickers:
         return
 
-    # use filings table instead of news_alerts
     filings_result = supabase.table("filings")\
         .select("*")\
         .in_("impact", ["high", "medium"])\
         .eq("alert_sent", False)\
+        .eq("sentiment", "negative")\
         .execute()
 
     for filing in (filings_result.data or []):
@@ -141,12 +140,15 @@ async def monitor_active_signals():
         if ticker and ticker in active_tickers:
             await send_hermes_alert(
                 f"⚠️ Active Signal Risk\n\n"
-                f"New filing affects active signal: {ticker}\n\n"
+                f"Negative filing affects active signal: {ticker}\n\n"
                 f"{filing.get('summary', '')}\n"
-                f"Type: {filing.get('filing_type', '')}\n"
-                f"Sentiment: {filing.get('sentiment', '')}\n\n"
+                f"Type: {filing.get('filing_type', '')}\n\n"
                 f"Consider alerting subscribers."
             )
+            supabase.table("filings")\
+                .update({"alert_sent": True})\
+                .eq("id", filing["id"])\
+                .execute()
 
 async def weekly_digest():
     """Friday performance digest with AI insights."""

@@ -5,6 +5,7 @@ from app.config import ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
 from app.database import supabase
 from app.scrapers.filings import get_all_filings
 from datetime import datetime, UTC
+from datetime import date
 
 logger = logging.getLogger(__name__)
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -31,12 +32,20 @@ SKIP_TYPES = [
     "Extra-Ordinary General Meeting (EGM)"
 ]
 
-def already_stored(filing_text: str) -> bool:
+def already_stored(ticker: str, title: str) -> bool:
     result = supabase.table("filings")\
         .select("id")\
-        .eq("filing_text", filing_text[:200])\
+        .eq("ticker", ticker)\
+        .eq("summary", title[:200])\
         .execute()
-    return len(result.data) > 0
+    if result.data:
+        return True
+    # also check filing_text
+    result2 = supabase.table("filings")\
+        .select("id")\
+        .ilike("filing_text", f"%{title[:50]}%")\
+        .execute()
+    return len(result2.data) > 0
 
 def analyze_filing(filing_text: str, ticker: str = None) -> dict:
     try:
@@ -97,15 +106,23 @@ async def send_filing_alert(chat_id: int, text: str):
 
 async def run_filings_monitor():
     logger.info("Running NGX filings monitor...")
+    today = date.today().strftime("%d %b %Y")  # matches format like "8 Jun 2026"
 
     filings = await get_all_filings()
     if not filings:
-        logger.info("No filings retrieved")
+        return
+
+    # only process today's filings
+    todays_filings = [f for f in filings if f.get("date", "") == today]
+    logger.info(f"Today's filings: {len(todays_filings)} out of {len(filings)} total")
+    
+    if not todays_filings:
+        logger.info("No new filings today")
         return
 
     high_impact = []
 
-    for filing in filings:
+    for filing in todays_filings:  # not filings
         text = filing["text"]
         filing_type = filing.get("filing_type", "")
         title = filing.get("title", "").upper()
@@ -113,10 +130,9 @@ async def run_filings_monitor():
         if filing_type in SKIP_TYPES:
             continue
 
-        if already_stored(text):
+        if already_stored(filing.get("ticker", ""), filing.get("title", "")):
             continue
 
-        # determine if worth analyzing
         is_high_value = filing_type in HIGH_VALUE_TYPES
         is_notable_action = (
             filing_type == "Corporate Actions" and
@@ -126,7 +142,6 @@ async def run_filings_monitor():
         if is_high_value or is_notable_action:
             analysis = analyze_filing(text, filing.get("ticker"))
         else:
-            # store but don't analyze
             supabase.table("filings").insert({
                 "ticker": filing.get("ticker"),
                 "filing_text": text[:500],
