@@ -465,11 +465,18 @@ async def audit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_terms(update):
         return
+
+    junk = [
+        'VSPBONDETF','VETGRIF30','GREENWETF','STANBICETF30','SIAMLETF40',
+        'NEWGOLD','LOTUSHAL15','TAJSUKS1','TAJSUKS2','FGS202894',
+        'FGSUK2031S4','FGS202776','MOFIREIF','FGS202770','MERGROWTH',
+        'MERVALUE','NIDF','MERG','FFFBN','SFSREIT','UPDCREIT'
+    ]
+
     result = supabase.table("signal_history")\
         .select("*")\
         .neq("outcome", "pending")\
-        .order("closed_at", desc=True)\
-        .limit(50)\
+        .order("week_start", desc=True)\
         .execute()
 
     if not result.data:
@@ -479,11 +486,13 @@ async def performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    records = result.data
+    records = [r for r in result.data if r["ticker"] not in junk]
     wins = [r for r in records if r["outcome"] == "tp1_hit"]
     losses = [r for r in records if r["outcome"] == "stopped_out"]
     win_rate = round(len(wins) / len(records) * 100) if records else 0
-    avg_gain = round(sum(r["gain_percentage"] for r in records if r["gain_percentage"]) / len(records), 2) if records else 0
+    avg_gain = round(
+        sum(r["gain_percentage"] for r in records if r.get("gain_percentage")) / len(records), 2
+    ) if records else 0
 
     msg = (
         f"📈 StockOracle Track Record\n\n"
@@ -495,7 +504,8 @@ async def performance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     for r in records[:5]:
         emoji = "✅" if r["outcome"] == "tp1_hit" else "❌"
-        msg += f"{emoji} {r['ticker']} — {r['gain_percentage']}%\n"
+        gain = r.get("gain_percentage", 0)
+        msg += f"{emoji} {r['ticker']} — {gain}%\n"
 
     await update.message.reply_text(msg)
 
