@@ -59,7 +59,7 @@ async def main():
 
     scheduler = start_scheduler()
 
-    # monday sequence — scrape first, then signals 15min later, broadcast 15min after that
+    # monday sequence
     scheduler.add_job(
         scrape_and_save,
         CronTrigger(hour=7, minute=0, day_of_week="mon", timezone="UTC")
@@ -73,7 +73,7 @@ async def main():
         CronTrigger(hour=7, minute=30, day_of_week="mon", timezone="UTC")
     )
 
-    # tue-fri — scrape at 7:30, daily signals at 7:45
+    # tue-fri
     scheduler.add_job(
         scrape_and_save,
         CronTrigger(hour=7, minute=0, day_of_week="tue-fri", timezone="UTC")
@@ -83,18 +83,18 @@ async def main():
         CronTrigger(hour=7, minute=45, day_of_week="tue-fri", timezone="UTC")
     )
 
-    # weekday jobs
+    # tp/sl alerts every 30 minutes during market hours
     scheduler.add_job(
         send_tp_alerts,
-        CronTrigger(hour=13, minute=50, day_of_week="mon-fri", timezone="UTC")
+        CronTrigger(minute="0,30", hour="8-16", day_of_week="mon-fri", timezone="UTC")
     )
-    # from app.news_analyzer import run_filings_monitor
 
-    # replace the news monitor job
+    # filings monitor twice daily
     scheduler.add_job(
-    run_filings_monitor,
-    CronTrigger(hour="8,12", minute=0, day_of_week="mon-fri", timezone="UTC")
+        run_filings_monitor,
+        CronTrigger(hour="8,12", minute=0, day_of_week="mon-fri", timezone="UTC")
     )
+
     scheduler.add_job(
         send_watchlist_updates,
         CronTrigger(hour=7, minute=30, day_of_week="mon-fri", timezone="UTC")
