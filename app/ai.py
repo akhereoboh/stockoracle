@@ -284,7 +284,26 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
             if not result.data:
                 return f"Stock {ticker} not found."
             s = result.data[0]
-            return f"{s['ticker']} — {s['company']}\nPrice: {s['price']}\nChange: {s['change']}\nSignal: {s['signal']}"
+
+            # calculate naira liquidity
+            from app.signal_engine import clean_volume, clean_price
+            vol = clean_volume(s.get("volume", "0"))
+            price_val = clean_price(s.get("price", "0"))
+            naira_value = vol * price_val
+
+            liquidity_note = ""
+            if naira_value == 0:
+                liquidity_note = "\n\n⚠️ No trading activity today. Treat with extreme caution."
+            elif naira_value < 500_000:
+                liquidity_note = f"\n\n⚠️ Liquidity Warning: Only ₦{naira_value:,.0f} traded today. This stock is illiquid — you may struggle to buy or sell at quoted prices."
+
+            return (
+                f"{s['ticker']} — {s['company']}\n"
+                f"Price: {s['price']}\n"
+                f"Change: {s['change']}\n"
+                f"Signal: {s['signal']}"
+                f"{liquidity_note}"
+            )
 
         elif tool_name == "get_weekly_signals":
             result = supabase.table("signals")\
@@ -989,6 +1008,7 @@ Always use tools to answer questions about stocks. Never answer from general kno
 - User asks about sector performance → use sector_performance
 - User asks what day is best to buy → use best_trading_days
 If you're about to answer a market question from memory, STOP and use a tool instead.
+
 SIGNAL INTERPRETATION:
 When presenting stock signals to users, never just say "SELL" without context. Always interpret it properly:
 - If signal is SELL and user is asking whether to buy: say "avoid entering this stock right now — the technical setup suggests downward pressure"
@@ -996,11 +1016,20 @@ When presenting stock signals to users, never just say "SELL" without context. A
 - If signal is BUY: say "the technical setup favours entry at current levels"
 - If signal is HOLD: say "no strong directional conviction either way — existing holders can stay, new buyers should wait for a clearer setup"
 Never present a raw BUY/SELL/HOLD without translating it into actionable English for the user's specific situation.
+
 WHEN USING stock_performance TOOL:
 Step 1 — paste the data block exactly as returned by the tool (dates, prices, return, high/low, signal).
 Step 2 — add exactly 2 sentences: one explaining what the numbers mean, one clear verdict (buy/hold/sell and why).
 No other text. Numbers then verdict. That is the complete response.
 IMPORTANT: Always call the tool fresh even if you discussed this stock recently in the conversation. Never use cached conversation data to answer stock performance questions — prices change constantly and the user wants current data, not what you said 5 minutes ago.
+
+LIQUIDITY RULE:
+Before recommending any stock, always check its volume data. Calculate naira value traded 
+(volume × price). If below ₦500,000: warn the user clearly — 
+"This stock is illiquid — even if the price looks good, you may not be able to exit your 
+position without significantly moving the price against yourself."
+If volume is zero: "No trading activity today — avoid entirely."
+Never recommend an illiquid stock for entry regardless of technical setup.
 
 SUBSCRIPTION PLANS:
 Basic ₦5,999/month — all 5 weekly signals every Monday, take profit and stop loss alerts, unlimited stock lookups, full AI analysis, watchlist, news alerts

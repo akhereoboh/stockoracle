@@ -221,10 +221,12 @@ def score_stock(stock: dict, history: list) -> float:
     if len(history) < 3:
         return 0.0
 
-    # liquidity gate
+    # liquidity gate — minimum ₦500,000 naira value traded daily
     avg_volume = get_average_volume(history)
-    if avg_volume > 0 and avg_volume < 50000 and today_volume < 50000:
-        return 0.0
+    if price > 0 and avg_volume > 0:
+        avg_naira_value = avg_volume * price
+        if avg_naira_value < 500_000 and today_volume * price < 500_000:
+            return 0.0
 
     # trend filter
     trend = get_price_trend(history)
