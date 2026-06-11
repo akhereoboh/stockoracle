@@ -2,7 +2,7 @@ import logging
 import httpx
 from app.database import supabase
 from app.config import TELEGRAM_BOT_TOKEN
-from app.signal_engine import get_latest_stocks, get_all_history_bulk, score_stock, generate_targets, clean_price, get_recently_signalled_tickers
+from app.signal_engine import get_latest_stocks, get_all_history_bulk, score_stock, generate_targets, clean_price, get_recently_signalled_tickers, is_tradeable_equity, check_market_breadth
 from app.broadcaster import get_active_paid_users, _send
 from datetime import datetime, UTC, date
 
@@ -14,17 +14,32 @@ def run_daily_signal_engine() -> list:
     if not stocks:
         return []
 
+    # market breadth check
+    from app.signal_engine import check_market_breadth
+    breadth = check_market_breadth(stocks)
+    logger.info(f"Daily signal breadth: {breadth:.1%}")
+    if breadth < 0.40:
+        logger.warning(f"Market breadth too low ({breadth:.1%}) — skipping daily signals")
+        return []
+
     history_map = get_all_history_bulk(days=10)
     recently_signalled = get_recently_signalled_tickers(weeks=1)
 
     scored = []
     for stock in stocks:
         ticker = stock["ticker"]
+        company = stock.get("company", "")
+
+        if not is_tradeable_equity(ticker, company):
+            continue
         if ticker in recently_signalled:
             continue
+
         history = history_map.get(ticker, [])
         score = score_stock(stock, history)
-        if score > 0:
+
+        # minimum 45 points for daily signals — slightly lower than weekly
+        if score >= 45:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -47,6 +62,33 @@ async def broadcast_daily_signals():
     pro_users = get_active_paid_users(["pro"])
     if not pro_users:
         return
+
+    # save signals to database so outcomes get tracked
+    from datetime import datetime, UTC
+    week_start = date.today().isoformat()
+
+    for s in signals:
+        # save to signals table
+        supabase.table("signals").insert({
+            "ticker": s["ticker"],
+            "market": "NGX",
+            "status": "active",
+            "entry_price": s["entry_price"],
+            "tp1": s["tp1"],
+            "tp2": s["tp2"],
+            "stop_loss": s["stop_loss"],
+            "created_at": datetime.now(UTC).isoformat()
+        }).execute()
+
+        # save to signal_history so check_outcomes tracks it
+        supabase.table("signal_history").upsert({
+            "ticker": s["ticker"],
+            "week_start": week_start,
+            "entry_price": s["entry_price"],
+            "tp1": s["tp1"],
+            "tp2": s["tp2"],
+            "stop_loss": s["stop_loss"]
+        }, on_conflict="ticker,week_start").execute()
 
     msg = f"📊 Daily Pro Signals — {date.today().strftime('%A %d %B')}\n\n"
     for i, s in enumerate(signals, 1):
