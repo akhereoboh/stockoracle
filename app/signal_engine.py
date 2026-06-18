@@ -413,10 +413,12 @@ def run_signal_engine() -> list:
 
 def update_signal_outcomes():
     logger.info("Checking signal outcomes...")
+    since = (date.today() - timedelta(days=14)).isoformat()
     
     active = supabase.table("signal_history")\
         .select("*")\
         .eq("outcome", "pending")\
+        .gte("week_start", since)\
         .execute()
 
     if not active.data:
@@ -462,6 +464,14 @@ def update_signal_outcomes():
             "gain_percentage": gain,
             "closed_at": datetime.now(UTC).isoformat()
         }).eq("id", record["id"]).execute()
+
+        # mark signal as closed in signals table — prevents stale alerts
+        supabase.table("signals")\
+            .update({"status": "closed"})\
+            .eq("ticker", ticker)\
+            .eq("status", "active")\
+            .execute()
+
 
         logger.info(f"{ticker} outcome: {outcome} | Gain: {gain}%")
 
