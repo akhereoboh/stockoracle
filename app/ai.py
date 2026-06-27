@@ -1059,7 +1059,7 @@ CURRENT USER: {user_name} | Plan: {user_tier.upper()}
 
     while True:
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=8000,
             system=system_prompt,
             tools=tools,
