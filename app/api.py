@@ -25,7 +25,8 @@ api_app = FastAPI(
     description="NGX market intelligence API for StockNX Flutter app",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
+    servers=[{"url": "https://sireai.uk/stocknx", "description": "Production"}]
 )
 
 api_app.add_middleware(
