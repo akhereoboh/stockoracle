@@ -82,3 +82,7 @@ async def paystack_webhook(request: Request):
 @webhook_app.get("/health")
 async def health():
     return {"status": "running"}
+
+# mount API
+from app.api import api_app
+webhook_app.mount("/", api_app)
