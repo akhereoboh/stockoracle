@@ -81,11 +81,11 @@ async def main():
     application.add_handler(MessageHandler(filters.COMMAND, waitlist_catch))
     
     def run_webhook():
-        uvicorn.run(webhook_app, host="0.0.0.0", port=8001, log_level="warning")
+        uvicorn.run(webhook_app, host="0.0.0.0", port=7001, log_level="warning")
 
     webhook_thread = threading.Thread(target=run_webhook, daemon=True)
     webhook_thread.start()
-    logger.info("Webhook server running on port 8001")
+    logger.info("Webhook server running on port 7001")
 
     print("StockOracle bot running...")
 
