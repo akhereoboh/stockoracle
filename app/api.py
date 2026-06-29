@@ -902,7 +902,7 @@ async def root():
         "service": "StockNX API",
         "version": "1.0.0",
         "base_url": "https://sireai.uk/stocknx/api/v1",
-        "docs": "https://sireai.uk/stocknx/api/v1/docs",
+        "docs": "See StockNX API Documentation (Word doc provided)",
         "endpoints": {
             "auth": {
                 "POST /auth/register": "Register new user",
