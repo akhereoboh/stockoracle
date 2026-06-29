@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 SECRET_KEY = os.environ.get("JWT_SECRET", "stockoracle_secret_2026")
 ALGORITHM = "HS256"
 
-api_app = FastAPI(title="StockNX API", version="1.0.0")
+api_app = FastAPI(
+    title="StockNX API",
+    version="1.0.0",
+    description="NGX market intelligence API for StockNX Flutter app",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    openapi_url="/api/v1/openapi.json"
+)
 
 api_app.add_middleware(
     CORSMiddleware,
@@ -887,3 +894,67 @@ async def ai_chat(request: Request, user: dict = Depends(get_current_user)):
 @api_app.get("/api/v1/health")
 async def health():
     return {"status": "ok", "service": "StockNX API", "version": "1.0.0"}
+
+
+
+@api_app.get("/api/v1")
+async def root():
+    return {
+        "service": "StockNX API",
+        "version": "1.0.0",
+        "base_url": "https://sireai.uk/stocknx/api/v1",
+        "docs": "https://sireai.uk/stocknx/api/v1/docs",
+        "endpoints": {
+            "auth": {
+                "POST /auth/register": "Register new user",
+                "POST /auth/login": "Login and get token"
+            },
+            "user": {
+                "GET /user/profile": "Get user profile (auth required)",
+                "GET /user/status": "Check subscription status (auth required)",
+                "POST /user/update": "Update profile (auth required)",
+                "GET /user/referral": "Get referral info (auth required)"
+            },
+            "signals": {
+                "GET /signals/weekly": "This week's signals (Basic+)",
+                "GET /signals/daily": "Today's daily signals (Pro only)",
+                "GET /signals/active": "All active signals (Basic+)",
+                "GET /signals/{ticker}": "Signal for specific stock (Basic+)"
+            },
+            "performance": {
+                "GET /performance": "Overall track record",
+                "GET /performance/history": "Full signal history",
+                "GET /performance/sectors": "Performance by sector"
+            },
+            "stocks": {
+                "GET /stocks/movers": "Top gainers and losers",
+                "GET /stocks/search?q=": "Search stocks",
+                "GET /stocks/{ticker}": "Stock price and data",
+                "GET /stocks/{ticker}/history": "Price history",
+                "GET /stocks/{ticker}/technical": "Technical analysis (Basic+)"
+            },
+            "market": {
+                "GET /market/breadth": "Market health indicator",
+                "GET /market/volume": "Volume leaders (Basic+)",
+                "GET /market/volatility": "Volatility profiles (Basic+)",
+                "GET /market/best-days": "Best trading days (Basic+)",
+                "GET /market/filings": "NGX regulatory filings (Basic+)"
+            },
+            "watchlist": {
+                "GET /watchlist": "Get watchlist (auth required)",
+                "POST /watchlist/{ticker}": "Add to watchlist (auth required)",
+                "DELETE /watchlist/{ticker}": "Remove from watchlist (auth required)"
+            },
+            "payments": {
+                "GET /payments/plans": "Available subscription plans",
+                "POST /payments/initiate": "Start payment (auth required)",
+                "GET /payments/verify/{reference}": "Verify payment (auth required)"
+            },
+            "ai": {
+                "POST /ai/chat": "Chat with OracleAI (Basic+)"
+            },
+            "health": {
+                "GET /health": "API health check"
+            }
+        }
+    }
