@@ -151,7 +151,7 @@ async def monitor_active_signals():
                 .execute()
 
 async def weekly_digest():
-    """Friday performance digest with AI insights."""
+    """Friday performance digest — no AI, just numbers."""
     since = (date.today() - timedelta(days=7)).isoformat()
 
     result = supabase.table("signal_history")\
@@ -172,35 +172,17 @@ async def weekly_digest():
         sum(r.get("gain_percentage", 0) for r in records) / len(records), 2
     ) if records else 0
 
-    records_text = "\n".join([
-        f"{'✅' if r['outcome'] == 'tp1_hit' else '❌'} {r['ticker']}: {r.get('gain_percentage', 0):.2f}%"
-        for r in records
-    ])
+    win_lines = "\n".join([f"✅ {r['ticker']}: +{r.get('gain_percentage', 0):.2f}%" for r in wins])
+    loss_lines = "\n".join([f"❌ {r['ticker']}: {r.get('gain_percentage', 0):.2f}%" for r in losses])
 
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=400,
-            messages=[{
-                "role": "user",
-                "content": f"""Analyse these StockOracle NGX signal results and give 2-3 specific actionable insights to improve next week's picks.
-
-{records_text}
-
-Win rate: {win_rate}% | Average return: {avg_gain}%
-
-Be specific and direct. Plain text only."""
-            }]
-        )
-        insights = response.content[0].text
-    except:
-        insights = "Unable to generate insights this week."
-
-    await send_hermes_alert(
+    msg = (
         f"Weekly Performance Digest\n\n"
         f"Signals closed: {len(records)}\n"
         f"Wins: {len(wins)} | Losses: {len(losses)}\n"
         f"Win rate: {win_rate}%\n"
         f"Average return: {avg_gain}%\n\n"
-        f"AI Insights:\n{insights}"
+        f"Winners:\n{win_lines or 'None'}\n\n"
+        f"Losers:\n{loss_lines or 'None'}"
     )
+
+    await send_hermes_alert(msg)
