@@ -347,7 +347,7 @@ def run_signal_engine() -> list:
     logger.info("Fetching bulk history...")
     history_map = get_all_history_bulk(days=14)
 
-    recently_signalled = get_recently_signalled_tickers(weeks=2)
+    recently_signalled = get_recently_signalled_tickers(weeks=1)
     logger.info(f"Excluding {len(recently_signalled)} recently signalled tickers")
 
     scored = []
@@ -365,7 +365,7 @@ def run_signal_engine() -> list:
         score = score_stock(stock, history)
 
         # minimum 50 points — high conviction only
-        if score >= 50:
+        if score >= 40:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)

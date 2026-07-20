@@ -38,8 +38,8 @@ def run_daily_signal_engine() -> list:
         history = history_map.get(ticker, [])
         score = score_stock(stock, history)
 
-        # minimum 45 points for daily signals — slightly lower than weekly
-        if score >= 45:
+        # minimum 35 points for daily signals — slightly lower than weekly
+        if score >= 35:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)
