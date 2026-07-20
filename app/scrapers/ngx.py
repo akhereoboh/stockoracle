@@ -8,14 +8,29 @@ async def get_ngx_prices() -> list:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         await page.goto(NGX_URL, timeout=60000)
-        await page.wait_for_timeout(8000)
+        
+        # wait for initial load
+        await page.wait_for_timeout(5000)
+        
+        # scroll to bottom repeatedly to trigger lazy loading
+        prev_height = 0
+        for _ in range(20):
+            curr_height = await page.evaluate("document.body.scrollHeight")
+            if curr_height == prev_height:
+                break
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(2000)
+            prev_height = curr_height
+        
+        # scroll back to top and wait for any final renders
+        await page.evaluate("window.scrollTo(0, 0)")
+        await page.wait_for_timeout(3000)
         
         content = await page.inner_text("body")
         await browser.close()
         
         results = []
         lines = [l.strip() for l in content.split("\n") if l.strip()]
-        
         i = 0
         while i < len(lines):
             line = lines[i]
@@ -26,7 +41,6 @@ async def get_ngx_prices() -> list:
                 price = ""
                 change = ""
                 volume = "0"
-                
                 for j in range(i+1, min(i+10, len(lines))):
                     if "BUY" in lines[j] or "SELL" in lines[j] or "HOLD" in lines[j] or "NO DATA" in lines[j]:
                         signal = lines[j]
@@ -34,12 +48,10 @@ async def get_ngx_prices() -> list:
                         price = lines[j]
                     if re.match(r'^[+-]\d+\.\d+%$', lines[j]):
                         change = lines[j]
-                    # volume line: "Volume" label followed by a number
                     if lines[j] == "Volume" and j+1 < len(lines):
                         raw_vol = lines[j+1].replace(",", "").strip()
                         if raw_vol.isdigit():
                             volume = raw_vol
-                
                 if price:
                     results.append({
                         "ticker": ticker,
@@ -49,8 +61,8 @@ async def get_ngx_prices() -> list:
                         "signal": signal,
                         "volume": volume
                     })
-                i += 1
-            else:
-                i += 1
+                    i += 8
+                    continue
+            i += 1
         
         return results
