@@ -62,6 +62,7 @@ async def review_signals(signals: list) -> list:
         filings_text = "No material filings in the last 24 hours"
 
     prompt = f"""You are Hermes, signal quality auditor for StockOracle.
+    IMPORTANT: Use plain text only. No markdown, no bold (**), no headers (##), no bullet symbols. Just plain sentences.
 
 Review these signals before they broadcast to paying users. Real money is at stake. Be strict.
 

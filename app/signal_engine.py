@@ -369,7 +369,17 @@ def run_signal_engine() -> list:
             scored.append((score, stock, history))
 
     scored.sort(key=lambda x: x[0], reverse=True)
-    top5 = scored[:5]
+
+    # prevent duplicates — check which tickers already have active signals today
+    existing = supabase.table("signals")\
+        .select("ticker")\
+        .eq("status", "active")\
+        .gte("created_at", date.today().isoformat())\
+        .execute()
+    existing_tickers = {s["ticker"] for s in (existing.data or [])}
+
+    top5 = [(score, stock, history) for score, stock, history in scored[:5]
+            if stock["ticker"] not in existing_tickers]
 
     if not top5:
         logger.warning("No qualifying stocks found")
