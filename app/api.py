@@ -23,10 +23,41 @@ api_app = FastAPI(
     title="StockNX API",
     version="1.0.0",
     description="NGX market intelligence API for StockNX Flutter app",
-    docs_url="/api/v1/docs",
-    redoc_url="/api/v1/redoc",
+    docs_url=None,
+    redoc_url=None,
     openapi_url="/api/v1/openapi.json"
 )
+
+from fastapi.responses import HTMLResponse
+
+@api_app.get("/api/v1/docs", include_in_schema=False)
+async def custom_swagger():
+    return HTMLResponse("""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    <title>StockNX API - Swagger UI</title>
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>
+const ui = SwaggerUIBundle({
+    url: 'https://sireai.uk/stocknx/api/v1/openapi.json',
+    dom_id: '#swagger-ui',
+    layout: 'BaseLayout',
+    deepLinking: true,
+    presets: [
+        SwaggerUIBundle.presets.apis,
+        SwaggerUIBundle.SwaggerUIStandalonePreset
+    ],
+})
+</script>
+</body>
+</html>
+""")
 api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
