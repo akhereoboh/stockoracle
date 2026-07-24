@@ -926,7 +926,7 @@ def execute_tool(tool_name: str, tool_input: dict, user_tier: str = "free") -> s
 
 import base64
 
-def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None, 
+def get_ai_response(user_message: str, user_name: str = "there", image_data: bytes = None,
                     image_mime: str = None, history: list = None, user_tier: str = "free") -> tuple:
     if history is None:
         history = []
@@ -1024,9 +1024,9 @@ No other text. Numbers then verdict. That is the complete response.
 IMPORTANT: Always call the tool fresh even if you discussed this stock recently in the conversation. Never use cached conversation data to answer stock performance questions — prices change constantly and the user wants current data, not what you said 5 minutes ago.
 
 LIQUIDITY RULE:
-Before recommending any stock, always check its volume data. Calculate naira value traded 
-(volume × price). If below ₦500,000: warn the user clearly — 
-"This stock is illiquid — even if the price looks good, you may not be able to exit your 
+Before recommending any stock, always check its volume data. Calculate naira value traded
+(volume × price). If below ₦500,000: warn the user clearly —
+"This stock is illiquid — even if the price looks good, you may not be able to exit your
 position without significantly moving the price against yourself."
 If volume is zero: "No trading activity today — avoid entirely."
 Never recommend an illiquid stock for entry regardless of technical setup.
@@ -1055,16 +1055,56 @@ CURRENT USER: {user_name} | Plan: {user_tier.upper()}
     else:
         content = user_message
 
-    messages = history + [{"role": "user", "content": content}]
+    # sanitize history — remove orphaned tool blocks that cause API errors
+    clean_history = []
+    for msg in history:
+        if isinstance(msg.get("content"), list):
+            has_tool_result = any(
+                isinstance(c, dict) and c.get("type") == "tool_result"
+                for c in msg["content"]
+            )
+            # check if previous message in clean_history has tool_use
+            prev_has_tool_use = False
+            if clean_history:
+                prev = clean_history[-1]
+                if isinstance(prev.get("content"), list):
+                    prev_has_tool_use = any(
+                        isinstance(c, dict) and c.get("type") == "tool_use"
+                        for c in prev["content"]
+                    )
+            if has_tool_result and not prev_has_tool_use:
+                continue
+        clean_history.append(msg)
+
+    messages = clean_history + [{"role": "user", "content": content}]
 
     while True:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=8000,
-            system=system_prompt,
-            tools=tools,
-            messages=messages
-        )
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=8000,
+                system=system_prompt,
+                tools=tools,
+                messages=messages
+            )
+        except Exception as e:
+            logger.error(f"AI response error: {e}")
+            if "tool_use_id" in str(e) or "tool_result" in str(e):
+                logger.warning("Corrupted history detected, retrying without history")
+                try:
+                    response = client.messages.create(
+                        model="claude-sonnet-4-6",
+                        max_tokens=8000,
+                        system=system_prompt,
+                        tools=tools,
+                        messages=[{"role": "user", "content": content}]
+                    )
+                    messages = [{"role": "user", "content": content}]
+                except Exception as e2:
+                    logger.error(f"Retry failed: {e2}")
+                    return "I encountered an error. Please try again.", []
+            else:
+                return "Something went wrong on my end. Please try again in a few minutes.", history
 
         if response.stop_reason == "end_turn":
             for block in response.content:
@@ -1088,5 +1128,3 @@ CURRENT USER: {user_name} | Plan: {user_tier.upper()}
 
         else:
             return "Something went wrong.", messages
-        
-
