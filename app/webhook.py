@@ -79,6 +79,43 @@ async def paystack_webhook(request: Request):
 
     return {"status": "ok"}
 
+
+@webhook_app.post("/webhook/korapay")
+async def korapay_webhook(request: Request):
+    payload = await request.body()
+    signature = request.headers.get("x-korapay-signature", "")
+
+    # --- Bounty routing: same Korapay account, separate app on port 2000 ---
+    try:
+        _peek = json.loads(payload)
+        _reference = _peek.get("data", {}).get("reference", "")
+    except (json.JSONDecodeError, AttributeError):
+        _reference = ""
+
+    if _reference.startswith(("fund_", "withdraw_")):
+        logger.info(f"Korapay event for Bounty (reference={_reference}) — forwarding, not processing here")
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "http://127.0.0.1:2000/webhooks/korapay",
+                    content=payload,  # raw bytes, unchanged — signature was computed over this exact body
+                    headers={"x-korapay-signature": signature, "Content-Type": "application/json"},
+                )
+                logger.info(f"Forwarded to Bounty — status {resp.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to forward Korapay webhook to Bounty: {e}")
+        return {"status": "forwarded_to_bounty"}
+    # --- end Bounty routing ---
+
+    # StockOracle's own Korapay handling would go here -- currently unimplemented.
+    # If StockOracle itself sells subscriptions via Korapay, this is where that
+    # upgrade logic needs to be written (mirroring paystack_webhook above).
+    logger.warning(f"Korapay webhook received but not handled by StockOracle (reference={_reference})")
+    return {"status": "ok"}
+
+
+
+
 @webhook_app.get("/health")
 async def health():
     return {"status": "running"}
