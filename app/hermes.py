@@ -32,8 +32,16 @@ async def review_signals(signals: list) -> list:
 
     logger.info(f"Hermes reviewing {len(signals)} signals...")
 
-    # get FRESH regulatory filings instead of stale news
-    filings = await get_recent_filings_for_hermes()
+    # deduplicate by ticker
+    seen = {}
+    for s in signals:
+        ticker = s["ticker"]
+        if ticker not in seen:
+            seen[ticker] = s
+    unique_signals = list(seen.values())
+
+    if len(unique_signals) < len(signals):
+        logger.info(f"Removed {len(signals) - len(unique_signals)} duplicate signals")
 
     # get market breadth
     stocks_result = supabase.table("stocks")\
@@ -42,82 +50,52 @@ async def review_signals(signals: list) -> list:
         .execute()
     stocks = stocks_result.data or []
     if stocks:
-        up = sum(1 for s in stocks if s.get("change", "").startswith("+"))
+        up = sum(1 for s in stocks if s.get("change", "").strip("'\" ").startswith("+") 
+                 and s.get("change", "").strip("'\" ") != "+0.00%")
         breadth = up / len(stocks) * 100
     else:
         breadth = 50
 
-    signals_text = "\n".join([
-        f"{s['ticker']} — Entry: ₦{s['entry_price']}, TP1: ₦{s['tp1']}, SL: ₦{s['stop_loss']}"
-        for s in signals
-    ])
-
-    if filings:
-        filings_text = "\n".join([
-            f"{f.get('ticker','?')} — {f.get('filing_type','').upper()}: {f.get('summary','')} "
-            f"(Sentiment: {f.get('sentiment','neutral')}, Impact: {f.get('impact','low')})"
-            for f in filings
-        ])
-    else:
-        filings_text = "No material filings in the last 24 hours"
-
-    prompt = f"""You are Hermes, signal quality auditor for StockOracle.
-    IMPORTANT: Use plain text only. No markdown, no bold (**), no headers (##), no bullet symbols. Just plain sentences.
-
-Review these signals before they broadcast to paying users. Real money is at stake. Be strict.
-
-PROPOSED SIGNALS:
-{signals_text}
-
-MARKET BREADTH: {breadth:.1f}% of NGX stocks are up today
-
-RECENT NGX REGULATORY FILINGS (fresh — not news articles):
-{filings_text}
-
-For each signal decide APPROVE or REJECT:
-- Reject if a recent filing shows negative earnings, profit warning, or regulatory issues for that stock
-- Reject if the stock's sector has negative material filings
-- Reject if market breadth is below 40%
-- Approve if fundamentals are clean and breadth supports it
-
-Format:
-TICKER: APPROVE/REJECT — reason
-...
-APPROVED: TICKER1, TICKER2"""
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=800,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        review = response.content[0].text
-        logger.info(f"Hermes review:\n{review}")
-
-        approved_tickers = []
-        for line in review.split("\n"):
-            if line.strip().startswith("APPROVED:"):
-                tickers_str = line.replace("APPROVED:", "").strip()
-                approved_tickers = [t.strip() for t in tickers_str.split(",") if t.strip()]
-                break
-
-        approved = [s for s in signals if s["ticker"] in approved_tickers]
-        rejected = [s["ticker"] for s in signals if s["ticker"] not in approved_tickers]
-
-        msg = (
-            f"Signal Audit Complete\n\n"
-            f"Proposed: {len(signals)} | Approved: {len(approved)} | Rejected: {len(rejected)}\n"
-            f"Market breadth: {breadth:.1f}%\n\n"
-            f"{review}"
-        )
+    # reject if breadth too low
+    if breadth < 40:
+        msg = f"Signal Audit\n\nAll signals paused — market breadth too low ({breadth:.1f}%)"
         await send_hermes_alert(msg)
-        return approved
+        return []
 
-    except Exception as e:
-        logger.error(f"Hermes review failed: {e}")
-        await send_hermes_alert(f"Review failed: {e}\nFalling back to all signals.")
-        return signals
+    # get recent negative filings
+    filings_result = supabase.table("filings")\
+        .select("ticker, sentiment, impact, summary")\
+        .eq("sentiment", "negative")\
+        .in_("impact", ["high", "medium"])\
+        .gte("scraped_at", (datetime.now(UTC) - timedelta(days=2)).isoformat())\
+        .execute()
+
+    negative_tickers = {f["ticker"] for f in (filings_result.data or []) if f.get("ticker")}
+
+    approved = []
+    rejected = []
+    for s in unique_signals:
+        if s["ticker"] in negative_tickers:
+            rejected.append(f"{s['ticker']}: REJECT — negative filing detected")
+        else:
+            approved.append(s)
+
+    msg = (
+        f"Signal Audit\n\n"
+        f"Proposed: {len(signals)} | Unique: {len(unique_signals)} | "
+        f"Approved: {len(approved)} | Rejected: {len(rejected)}\n"
+        f"Market breadth: {breadth:.1f}%\n\n"
+    )
+    if rejected:
+        msg += "Rejected:\n" + "\n".join(rejected)
+    if approved:
+        msg += "\nApproved: " + ", ".join(s["ticker"] for s in approved)
+
+    await send_hermes_alert(msg)
+    return approved
+
+
+
 
 async def monitor_active_signals():
     signals_result = supabase.table("signals")\

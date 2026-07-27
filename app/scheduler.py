@@ -51,9 +51,9 @@ def start_scheduler():
     ))
 
     # generate signals every Monday at 8:15am Nigerian time
-    scheduler.add_job(generate_weekly_signals, CronTrigger(
-        hour=7, minute=15, day_of_week="mon", timezone="UTC"
-    ))
+    # scheduler.add_job(generate_weekly_signals, CronTrigger(
+    #     hour=7, minute=15, day_of_week="mon", timezone="UTC"
+    # ))
 
     # check signal outcomes every weekday at 2:45pm Nigerian time
     scheduler.add_job(check_outcomes, CronTrigger(
