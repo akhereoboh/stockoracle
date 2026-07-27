@@ -62,6 +62,8 @@ def is_tradeable_equity(ticker: str, company: str = "") -> bool:
             'VETGOODS', 'VETBANK', 'SIAMLETF',
             'STANBICETF', 'GREENWETF', 'NGXPENBRD',
             'MERCER', 'MERISTEM VALUE', 'MERISTEM GROWTH',
+            'INFRASTRUCTURE DEBT FUND',
+            'DEBT FUND',
         ]
         for phrase in non_equity_phrases:
             if phrase in company_upper:
