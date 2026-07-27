@@ -204,6 +204,7 @@ def get_price_trend(history: list) -> str:
     return "sideways"
 
 def score_stock(stock: dict, history: list) -> float:
+    from datetime import date as date_
     score = 0.0
     signal = stock.get("signal", "").upper()
     change = clean_change(stock.get("change", "0%"))
@@ -233,8 +234,9 @@ def score_stock(stock: dict, history: list) -> float:
     if trend == "downtrend":
         return 0.0
 
-    # consecutive up days — only enforce strictly if enough history
-    if len(history) >= 5:
+    # consecutive up days — skip on Mondays (weekend gap means no consecutive data)
+    is_monday = date_.today().weekday() == 0
+    if len(history) >= 5 and not is_monday:
         consecutive_up = count_consecutive_up_days(history)
         if consecutive_up < 2:
             return 0.0
@@ -289,36 +291,35 @@ def score_stock(stock: dict, history: list) -> float:
     if len(history) >= 7:
         score += 5
 
-
-    # technical analysis bonus — add RSI and MACD to scoring
+    # technical analysis bonus
     if len(history) >= 14:
         prices_list = [clean_price(h["price"]) for h in history if clean_price(h["price"]) > 0]
-        volumes_list = [clean_volume(h.get("volume","0")) for h in history]
-        
+
         if len(prices_list) >= 14:
             from app.technical import calculate_rsi, calculate_macd
-            
+
             rsi = calculate_rsi(prices_list)
             macd = calculate_macd(prices_list)
-            
-            # RSI scoring
+
             if rsi is not None:
                 if 45 <= rsi <= 65:
-                    score += 15  # healthy momentum zone
+                    score += 15
                 elif rsi < 35:
-                    score += 10  # oversold bounce potential
+                    score += 10
                 elif rsi > 70:
-                    score -= 15  # overbought — risky entry
-            
-            # MACD scoring
+                    score -= 15
+
             if macd["crossover"] == "bullish":
-                score += 20  # fresh crossover — strong signal
+                score += 20
             elif macd["macd"] is not None and macd["macd"] > macd["signal"]:
-                score += 10  # above signal line
+                score += 10
             elif macd["crossover"] == "bearish":
-                score -= 20  # fresh bearish crossover — reject
+                score -= 20
 
     return score
+
+
+
 
 def generate_targets(price: float) -> dict:
     return {
