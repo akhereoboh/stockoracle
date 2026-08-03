@@ -44,20 +44,26 @@ async def review_signals(signals: list) -> list:
         logger.info(f"Removed {len(signals) - len(unique_signals)} duplicate signals")
 
     # get market breadth
-    stocks_result = supabase.table("stocks")\
-        .select("change")\
-        .eq("trade_date", date.today().isoformat())\
-        .execute()
-    stocks = stocks_result.data or []
-    if stocks:
-        up = sum(1 for s in stocks if s.get("change", "").strip("'\" ").startswith("+") 
-                 and s.get("change", "").strip("'\" ") != "+0.00%")
-        breadth = up / len(stocks) * 100
+    # use stored breadth from signal generation time if available
+    stored_breadth = unique_signals[0].get("market_breadth") if unique_signals else None
+    if stored_breadth is not None:
+        breadth = stored_breadth * 100
     else:
-        breadth = 50
+        # fallback to current breadth
+        stocks_result = supabase.table("stocks")\
+            .select("change")\
+            .eq("trade_date", date.today().isoformat())\
+            .execute()
+        stocks = stocks_result.data or []
+        if stocks:
+            up = sum(1 for s in stocks if s.get("change", "").strip("'\" ").startswith("+")
+                     and s.get("change", "").strip("'\" ") != "+0.00%")
+            breadth = up / len(stocks) * 100
+        else:
+            breadth = 50
 
     # reject if breadth too low
-    if breadth < 40:
+    if breadth < 45:
         msg = f"Signal Audit\n\nAll signals paused — market breadth too low ({breadth:.1f}%)"
         await send_hermes_alert(msg)
         return []

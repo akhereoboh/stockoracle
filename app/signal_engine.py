@@ -342,7 +342,7 @@ def run_signal_engine() -> list:
     # market breadth check
     breadth = check_market_breadth(stocks)
     logger.info(f"Market breadth: {breadth:.1%} stocks up today")
-    if breadth < 0.40:
+    if breadth < 0.45:
         logger.warning(f"Market breadth too low ({breadth:.1%}) — pausing signals today")
         return []
 
@@ -400,6 +400,7 @@ def run_signal_engine() -> list:
             "ticker": stock["ticker"],
             "market": "NGX",
             "status": "active",
+            "market_breadth": breadth,
             "created_at": datetime.now(UTC).isoformat(),
             **targets
         }
