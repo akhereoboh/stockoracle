@@ -108,8 +108,40 @@ async def main():
         CronTrigger(hour=15, minute=0, day_of_week="fri", timezone="UTC")
     )
 
+    # monday safety net — fires at 9am UTC if signals weren't broadcast
+    scheduler.add_job(
+        monday_safety_net,
+        CronTrigger(hour=9, minute=0, day_of_week="mon", timezone="UTC")
+    )
+
     logger.info("StockOracle scraper and broadcaster running...")
     while True:
         await asyncio.sleep(60)
+
+
+async def monday_safety_net():
+    """Runs at 9am UTC every Monday — ensures signals were broadcast today."""
+    from datetime import date
+    today = date.today().isoformat()
+
+    # check if signals exist for today
+    result = supabase.table("signals")\
+        .select("ticker")\
+        .eq("status", "active")\
+        .gte("created_at", today)\
+        .execute()
+
+    if result.data:
+        logger.info(f"Safety net: {len(result.data)} signals already exist for today — skipping")
+        return
+
+    logger.warning("Safety net triggered — no signals found for today, running full Monday sequence")
+
+    # run full sequence
+    await scrape_and_save()
+    run_signal_engine()
+    await broadcast_weekly_signals()
+
+
 
 asyncio.run(main())
